@@ -1,0 +1,38 @@
+name: Live smoke test
+
+# Manual only: this spends real Foundry quota, so it never runs on push/PR.
+# Credentials live in the `mai-live` GitHub Environment (Settings → Environments),
+# never in the repo. The regular CI workflow stays fully offline.
+on:
+  workflow_dispatch:
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    environment: mai-live
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run live smoke test (strict mode)
+        env:
+          MAI_EXECUTION_MODE: strict
+          MAI_FOUNDRY_ENDPOINT: ${{ secrets.MAI_FOUNDRY_ENDPOINT }}
+          MAI_FOUNDRY_API_KEY: ${{ secrets.MAI_FOUNDRY_API_KEY }}
+          MAI_THINKING_DEPLOYMENT: ${{ vars.MAI_THINKING_DEPLOYMENT || 'MAI-Thinking-1' }}
+          MAI_IMAGE_ENDPOINT: ${{ secrets.MAI_IMAGE_ENDPOINT }}
+          MAI_IMAGE_API_KEY: ${{ secrets.MAI_IMAGE_API_KEY }}
+          MAI_IMAGE_EDIT_DEPLOYMENT: ${{ vars.MAI_IMAGE_EDIT_DEPLOYMENT || 'MAI-Image-2.5' }}
+          MAI_IMAGE_GEN_DEPLOYMENT: ${{ vars.MAI_IMAGE_GEN_DEPLOYMENT || 'MAI-Image-2.5-Flash' }}
+          MAI_SPEECH_ENDPOINT: ${{ secrets.MAI_SPEECH_ENDPOINT }}
+          MAI_SPEECH_KEY: ${{ secrets.MAI_SPEECH_KEY }}
+          MAI_SPEECH_REGION: ${{ vars.MAI_SPEECH_REGION || 'eastus' }}
+        run: python scripts/live_smoke.py

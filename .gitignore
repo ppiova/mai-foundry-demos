@@ -1,0 +1,29 @@
+# Secrets / local config
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.cache/
+
+# OS / editors / tools
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# Generated at runtime
+assets/images/_generated_*
+assets/audio/_generated_*
+assets/audio/*.mp3
+assets/audio/*.wav
+!assets/audio/.gitkeep

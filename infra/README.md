@@ -1,0 +1,83 @@
+# Infrastructure as code
+
+`main.bicep` deploys one **Microsoft Foundry** resource (`Microsoft.CognitiveServices/accounts`,
+kind `AIServices`) with `MAI-Thinking-1`, `MAI-Image-2.5`, and `MAI-Image-2.5-Flash`
+deployed on it — the exact setup this repo's demos run against. Verified against
+Microsoft Learn's Bicep reference (api-version `2025-09-01`) and the official
+[Azure Verified Module for Cognitive Services accounts](https://github.com/Azure/bicep-registry-modules/tree/main/avm/res/cognitive-services/account).
+
+`MAI-Transcribe-1.5` and `MAI-Voice-2` need **no separate deployment** — the app
+calls them through this same account's Speech endpoints. See
+[`docs/API_VERIFIED.md`](../docs/API_VERIFIED.md) for the full API surface.
+
+## Deploy
+
+```bash
+# 1. Create (or pick) a resource group in a region that supports MAI image models.
+az group create --name rg-mai-examples --location eastus
+
+# 2. Edit main.bicepparam — accountName must be globally unique.
+
+# 3. Deploy.
+az deployment group create \
+  --resource-group rg-mai-examples \
+  --template-file main.bicep \
+  --parameters main.bicepparam
+```
+
+Deployment takes a couple of minutes — each model deployment is created in
+sequence (see the note in `main.bicep` on why they're chained with `dependsOn`
+instead of created in parallel).
+
+## Region constraints
+
+MAI image models (`MAI-Image-2.5`, `MAI-Image-2.5-Flash`) are only available in:
+**East US, West US, West Central US, West Europe, Sweden Central, South India,
+UAE North.** `location` is restricted to that list by default. If you only need
+`MAI-Thinking-1`, set `deployImageModels = false` and you can deploy to any
+Foundry-supported region (remove the `@allowed` restriction on `location` in
+that case).
+
+This is a real constraint we hit while building this repo: our first Foundry
+resource was in **East US 2**, which doesn't offer MAI image models at all —
+hence deploying a second, dedicated resource in East US.
+
+## Quota
+
+`thinkingCapacity` draws from your subscription's **Tokens-per-Minute (thousands)**
+quota for `MAI-Thinking-1` in the target region — this is a per-subscription,
+per-region limit, separate from the account itself. If `az deployment group
+validate` (or the real deployment) fails with `InsufficientQuota`, you're not
+looking at a template bug: either lower `thinkingCapacity`, delete/shrink an
+existing `MAI-Thinking-1` deployment in that region, or request more quota:
+https://aka.ms/oai/stuquotarequest. This template was validated end-to-end
+against a live Azure subscription (`az deployment group validate`) — it passed
+every schema and property check; the only rejection we hit while testing was
+this exact quota limit, not the template.
+
+## After deploying: fill in `.env`
+
+The deployment outputs the endpoints; you still need to fetch keys separately
+(Bicep never outputs secrets):
+
+```bash
+az cognitiveservices account keys list \
+  --name <accountName> --resource-group rg-mai-examples \
+  --query key1 -o tsv
+```
+
+Then, from the repo root:
+
+```bash
+copy .env.example .env
+```
+
+and fill in `MAI_FOUNDRY_ENDPOINT` / `MAI_FOUNDRY_API_KEY` (and `MAI_IMAGE_*`,
+`MAI_SPEECH_*`) with the `foundryEndpoint` / `speechEndpoint` outputs and the
+key above. All four can point at the **same** account.
+
+## Tear down
+
+```bash
+az group delete --name rg-mai-examples --yes --no-wait
+```

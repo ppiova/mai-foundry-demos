@@ -1,0 +1,10 @@
+# Core runtime
+streamlit>=1.36
+requests>=2.31
+python-dotenv>=1.0
+Pillow>=10.0
+
+# Optional: audible offline fallback for the Voice demo (OS TTS / SAPI5 on Windows).
+# Install it yourself if you want the offline fallback to actually play audio:
+#   pip install pyttsx3
+# Without it, the Voice demo still runs and just shows the (valid) SSML instead.

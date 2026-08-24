@@ -1,0 +1,10 @@
+{
+  "_comment": "cost_index is relative price per unit of workload (eastus = 1.00). A lower index means the region is cheaper. baseline_overhead_units is non-application load already running in the region; live utilization = (overhead + sum of assigned app units) / capacity_units_total.",
+  "regions": {
+    "eastus":     {"cost_index": 1.00, "capacity_units_total": 130, "baseline_overhead_units": 8,  "display_name": "East US"},
+    "westeurope": {"cost_index": 1.15, "capacity_units_total": 105, "baseline_overhead_units": 6,  "display_name": "West Europe"},
+    "southindia": {"cost_index": 0.60, "capacity_units_total": 120, "baseline_overhead_units": 30, "display_name": "South India"},
+    "uaenorth":   {"cost_index": 0.90, "capacity_units_total": 60,  "baseline_overhead_units": 20, "display_name": "UAE North"}
+  },
+  "capacity_ceiling_pct": 70
+}

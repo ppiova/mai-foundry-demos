@@ -1,0 +1,27 @@
+{
+  "currency": "USD",
+  "period": "monthly",
+  "objective": "Reduce total cloud cost by 20% without moving any Tier-1 application and without any region exceeding 70% capacity.",
+  "applications": [
+    {"name": "payments-core",         "tier": 1, "region": "eastus",     "monthly_cost": 22000, "capacity_units": 18, "criticality": "High",   "workload_type": "transactional", "can_migrate": false, "idle_candidate": false, "dependencies": ["identity-service"]},
+    {"name": "identity-service",      "tier": 1, "region": "eastus",     "monthly_cost": 15000, "capacity_units": 12, "criticality": "High",   "workload_type": "auth",          "can_migrate": false, "idle_candidate": false, "dependencies": []},
+    {"name": "ledger-db",             "tier": 1, "region": "westeurope", "monthly_cost": 18000, "capacity_units": 15, "criticality": "High",   "workload_type": "database",      "can_migrate": false, "idle_candidate": false, "dependencies": ["payments-core"]},
+    {"name": "fraud-realtime",        "tier": 1, "region": "eastus",     "monthly_cost": 12000, "capacity_units": 10, "criticality": "High",   "workload_type": "streaming",     "can_migrate": false, "idle_candidate": false, "dependencies": ["identity-service"]},
+
+    {"name": "order-api",             "tier": 2, "region": "eastus",     "monthly_cost":  9000, "capacity_units":  8, "criticality": "Medium", "workload_type": "api",           "can_migrate": true,  "idle_candidate": false, "dependencies": ["catalog-svc"]},
+    {"name": "catalog-svc",           "tier": 2, "region": "westeurope", "monthly_cost":  8000, "capacity_units":  7, "criticality": "Medium", "workload_type": "api",           "can_migrate": true,  "idle_candidate": false, "dependencies": []},
+    {"name": "recommendation-engine", "tier": 2, "region": "westeurope", "monthly_cost": 11000, "capacity_units": 12, "criticality": "Medium", "workload_type": "ml-serving",    "can_migrate": true,  "idle_candidate": false, "dependencies": ["catalog-svc"]},
+    {"name": "inventory-sync",        "tier": 2, "region": "eastus",     "monthly_cost":  6000, "capacity_units":  6, "criticality": "Medium", "workload_type": "batch",         "can_migrate": true,  "idle_candidate": false, "dependencies": []},
+    {"name": "notification-hub",      "tier": 2, "region": "westeurope", "monthly_cost":  5000, "capacity_units":  5, "criticality": "Medium", "workload_type": "messaging",     "can_migrate": true,  "idle_candidate": false, "dependencies": []},
+    {"name": "search-index",          "tier": 2, "region": "eastus",     "monthly_cost": 10000, "capacity_units": 11, "criticality": "Medium", "workload_type": "search",        "can_migrate": true,  "idle_candidate": false, "dependencies": ["catalog-svc"]},
+    {"name": "billing-reports",       "tier": 2, "region": "westeurope", "monthly_cost":  4000, "capacity_units":  4, "criticality": "Low",    "workload_type": "batch",         "can_migrate": true,  "idle_candidate": false, "dependencies": ["ledger-db"]},
+
+    {"name": "analytics-warehouse",   "tier": 3, "region": "eastus",     "monthly_cost": 14000, "capacity_units": 16, "criticality": "Low",    "workload_type": "analytics",     "can_migrate": true,  "idle_candidate": false, "dependencies": []},
+    {"name": "data-lake-etl",         "tier": 3, "region": "westeurope", "monthly_cost":  9000, "capacity_units": 10, "criticality": "Low",    "workload_type": "batch",         "can_migrate": true,  "idle_candidate": false, "dependencies": ["analytics-warehouse"]},
+    {"name": "ml-training-pool",      "tier": 3, "region": "westeurope", "monthly_cost": 13000, "capacity_units": 15, "criticality": "Low",    "workload_type": "ml-training",   "can_migrate": true,  "idle_candidate": false, "dependencies": ["data-lake-etl"]},
+    {"name": "media-transcode",       "tier": 3, "region": "eastus",     "monthly_cost":  6000, "capacity_units":  7, "criticality": "Low",    "workload_type": "batch",         "can_migrate": true,  "idle_candidate": false, "dependencies": []},
+    {"name": "dev-sandbox",           "tier": 3, "region": "eastus",     "monthly_cost":  5000, "capacity_units":  6, "criticality": "Low",    "workload_type": "dev",           "can_migrate": true,  "idle_candidate": true,  "dependencies": []},
+    {"name": "staging-cluster",       "tier": 3, "region": "westeurope", "monthly_cost":  7000, "capacity_units":  8, "criticality": "Low",    "workload_type": "dev",           "can_migrate": true,  "idle_candidate": true,  "dependencies": []},
+    {"name": "log-archive",           "tier": 3, "region": "eastus",     "monthly_cost":  3000, "capacity_units":  4, "criticality": "Low",    "workload_type": "storage",       "can_migrate": true,  "idle_candidate": true,  "dependencies": []}
+  ]
+}

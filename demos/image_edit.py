@@ -132,7 +132,7 @@ def render(client: MAIClient) -> None:
 
     col_run, col_hero = st.columns([1, 1])
     run = col_run.button("▶ Run edit", type="primary", key="edit_run")
-    hero = col_hero.button("▶ Second edit: 16:9 hero", key="edit_hero")
+    hero = col_hero.button("▶ Second edit: hero composition", key="edit_hero")
 
     if run or hero:
         active_prompt = HERO_PROMPT if hero else prompt

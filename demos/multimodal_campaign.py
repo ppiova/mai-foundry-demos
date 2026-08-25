@@ -49,12 +49,33 @@ def generate_brief(client: MAIClient, brief_text: str) -> tuple[dict, str, str |
     return _fallback_brief(brief_text), "fallback", None
 
 
+REQUIRED_CAMPAIGN_FIELDS = (
+    "campaign_name",
+    "tagline",
+    "creative_brief",
+    "hero_image_prompt",
+    "voiceover_script",
+)
+
+
 def _parse_json(text: str) -> dict:
+    """Parse the campaign JSON and require every field the pipeline depends on.
+
+    A partially-filled object would silently produce an empty hero prompt or a
+    blank voice-over, so an incomplete response raises and degrades to the
+    deterministic fallback brief instead.
+    """
     text = text.strip()
     if "```" in text:
         text = re.sub(r"```(json)?", "", text).strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
-    return json.loads(m.group(0) if m else text)
+    data = json.loads(m.group(0) if m else text)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a JSON object, got {type(data).__name__}")
+    missing = [f for f in REQUIRED_CAMPAIGN_FIELDS if not str(data.get(f, "")).strip()]
+    if missing:
+        raise ValueError(f"Campaign JSON missing required field(s): {', '.join(missing)}")
+    return data
 
 
 def _fallback_brief(brief_text: str) -> dict:
@@ -142,7 +163,7 @@ def render(client: MAIClient) -> None:
         img = client.generate_image(
             campaign.get("hero_image_prompt", brief_used), width=1024, height=768
         )
-        _stage("MAI-Image-2.5", img.source, img.elapsed, img.error)
+        _stage(img.meta.get("model", "MAI-Image"), img.source, img.elapsed, img.error)
         total += img.elapsed
         st.image(img.data, width="stretch", caption=campaign.get("hero_image_prompt", ""))
 

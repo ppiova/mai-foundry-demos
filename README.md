@@ -75,8 +75,10 @@ subscription. See [`infra/README.md`](infra/README.md).
 Every model is a deployment on a **Microsoft Foundry** resource (kind `AIServices`),
 reached over plain HTTPS:
 
-- **Thinking-1** → OpenAI-compatible `POST {endpoint}/openai/v1/chat/completions`
-  (`api-key` header, SSE streaming, standard `tools` / `tool_choice` function calling).
+- **Thinking-1** → `POST {endpoint}/mai/v1/chat/completions` (`api-key` header, SSE
+  streaming, `tools` function calling, `max_completion_tokens`, and
+  `reasoning_display` for encrypted reasoning state across tool rounds). The
+  OpenAI-compatible `/openai/v1/` path also works but rejects `reasoning_display`.
 - **Image-2.5 / Flash** → `POST {endpoint}/mai/v1/images/edits` and `/generations`
   (edits are multipart; responses are base64 PNG).
 - **Transcribe-1.5** → the Speech **LLM Speech API**

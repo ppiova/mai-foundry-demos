@@ -15,6 +15,7 @@ line-for-line and has no SDK version coupling.
 from __future__ import annotations
 
 import json
+import pathlib
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,24 @@ import requests
 from . import fallback
 from .config import Config, get_config
 from .ssml import build_ssml
+
+
+class MAIStreamError(RuntimeError):
+    """An error delivered *inside* an SSE stream rather than as an HTTP status.
+
+    MAI can start streaming content and only then refuse (e.g. a safety block),
+    emitting a ``{"error": {...}}`` event followed by ``[DONE]``. Without this,
+    the partial text would look like a successful, complete answer.
+    """
+
+    def __init__(self, error_type: str, message: str, request_id: str | None = None):
+        self.error_type = error_type
+        self.message = message
+        self.request_id = request_id
+        detail = f"{error_type}: {message}"
+        if request_id:
+            detail += f" (request_id={request_id})"
+        super().__init__(detail)
 
 
 @dataclass
@@ -47,70 +66,104 @@ class MAIClient:
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or get_config()
 
+    def _degrade(self, exc: Exception) -> None:
+        """Re-raise in strict mode; swallow (to fall back) in demo mode."""
+        if self.cfg.strict:
+            raise exc
+
     # ── Thinking-1 (raw chat; the tool loop lives in demos/thinking_agent.py) ──
     def thinking_ready(self) -> bool:
         return self.cfg.foundry_ready
+
+    def _chat_payload(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None,
+        tool_choice: str | None,
+        temperature: float | None,
+        max_completion_tokens: int | None,
+        reasoning_display: str | None,
+    ) -> dict[str, Any]:
+        """Build a MAI-Thinking-1 request body.
+
+        Parameter support verified against a live deployment (docs/API_VERIFIED.md):
+        ``max_tokens`` is rejected with 400 ("use `max_completion_tokens` instead"),
+        and ``reasoning_display`` is only accepted on the native /mai/v1/ path.
+        Optional arguments are omitted entirely rather than sent as null.
+        """
+        payload: dict[str, Any] = {
+            "model": self.cfg.thinking_deployment,
+            "messages": messages,
+        }
+        if tools:
+            payload["tools"] = tools
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_completion_tokens is not None:
+            payload["max_completion_tokens"] = max_completion_tokens
+        if reasoning_display is not None:
+            payload["reasoning_display"] = reasoning_display
+        return payload
 
     def chat_completion(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        tool_choice: str = "auto",
+        tool_choice: str | None = None,
         temperature: float | None = None,
-        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
+        reasoning_display: str | None = None,
     ) -> dict:
-        """Raw OpenAI-compatible chat completion against MAI-Thinking-1.
+        """Non-streaming chat completion against MAI-Thinking-1.
 
         Raises on any HTTP error (the caller decides whether to fall back).
         """
-        payload: dict[str, Any] = {
-            "model": self.cfg.thinking_deployment,
-            "messages": messages,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = tool_choice
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-
         resp = requests.post(
             self.cfg.chat_url,
             headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
-            json=payload,
-            timeout=self.cfg.request_timeout,
+            json=self._chat_payload(
+                messages, tools, tool_choice, temperature, max_completion_tokens, reasoning_display
+            ),
+            timeout=self.cfg.thinking_timeout,
         )
         resp.raise_for_status()
         return resp.json()
 
     def chat_completion_stream(
-        self, messages: list[dict], tools: list[dict] | None = None, tool_choice: str = "auto"
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        reasoning_display: str | None = None,
     ):
-        """Stream an OpenAI-compatible chat completion (SSE).
+        """Stream a chat completion (SSE) from MAI-Thinking-1.
 
-        Yields ``("content", delta)`` for each text delta and finally
-        ``("message", assembled_message)`` once, where the assembled message has
-        standard ``content`` / ``tool_calls`` fields ready to append and execute.
-        Raises on HTTP error (caller decides whether to fall back).
+        Yields ``("content", delta)`` per text delta, then exactly one
+        ``("message", assembled_message)``. The assembled message carries
+        ``content`` / ``tool_calls`` ready to execute, plus, when
+        ``reasoning_display="encrypted"`` was requested, an opaque ``reasoning``
+        blob. Append that message back verbatim on the next round so the model
+        keeps its reasoning state across tool calls — never render or log it.
+
+        Raises ``MAIStreamError`` if the service reports an error mid-stream (a
+        safety block can arrive *after* partial content) so truncated output is
+        never mistaken for a complete answer.
         """
-        payload: dict[str, Any] = {
-            "model": self.cfg.thinking_deployment,
-            "messages": messages,
-            "stream": True,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = tool_choice
+        payload = self._chat_payload(messages, tools, tool_choice, None, None, reasoning_display)
+        payload["stream"] = True
 
         content_parts: list[str] = []
         tool_acc: list[dict] = []  # ordered, assembled tool calls
         index_map: dict[int, int] = {}  # streamed index -> position in tool_acc
+        reasoning: Any = None
+        stats: dict[str, Any] = {}
         with requests.post(
             self.cfg.chat_url,
             headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
             json=payload,
-            timeout=self.cfg.request_timeout,
+            timeout=self.cfg.thinking_timeout,
             stream=True,
         ) as resp:
             resp.raise_for_status()
@@ -127,10 +180,33 @@ class MAIClient:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+
+                # An error event can follow partial content (e.g. a safety block).
+                # Surface it instead of returning the truncated text as success.
+                if chunk.get("error"):
+                    err = chunk["error"]
+                    raise MAIStreamError(
+                        err.get("type") or err.get("code") or "UnknownError",
+                        err.get("message", "Streaming request failed"),
+                        err.get("request_id") or chunk.get("id"),
+                    )
+
+                # Observability: usage/model/id arrive at the top level of chunks.
+                for key in ("usage", "model", "system_fingerprint"):
+                    if chunk.get(key) is not None:
+                        stats[key] = chunk[key]
+                if chunk.get("id"):
+                    stats.setdefault("request_id", chunk["id"])
+
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
-                delta = choices[0].get("delta") or {}
+                choice = choices[0]
+                if choice.get("finish_reason"):
+                    stats["finish_reason"] = choice["finish_reason"]
+                delta = choice.get("delta") or {}
+                if delta.get("reasoning"):
+                    reasoning = delta["reasoning"]
                 if delta.get("content"):
                     content_parts.append(delta["content"])
                     yield ("content", delta["content"])
@@ -154,6 +230,11 @@ class MAIClient:
                 }
                 for i, s in enumerate(tool_acc)
             ]
+        # Opaque reasoning state — echoed back untouched, never displayed.
+        if reasoning is not None:
+            message["reasoning"] = reasoning
+        if stats:
+            yield ("stats", stats)
         yield ("message", message)
 
     # ── Image-2.5 edit ─────────────────────────────────────────────────────────
@@ -168,7 +249,7 @@ class MAIClient:
                     headers={"api-key": self.cfg.image_api_key},
                     data={"model": self.cfg.image_edit_deployment, "prompt": prompt},
                     files={"image": (filename, image_bytes, mime)},
-                    timeout=self.cfg.request_timeout,
+                    timeout=self.cfg.image_timeout,
                 )
                 resp.raise_for_status()
                 png = _first_b64_png(resp.json())
@@ -179,6 +260,7 @@ class MAIClient:
                     elapsed=time.time() - t0,
                 )
             except Exception as exc:  # degrade
+                self._degrade(exc)
                 png = fallback.edit_image(image_bytes, prompt)
                 return MAIResult(
                     "fallback", png, {"prompt": prompt}, error=str(exc), elapsed=time.time() - t0
@@ -194,7 +276,7 @@ class MAIClient:
 
         On a live error, walk a short fallback ladder before giving up to the
         deterministic mock: retry at 768x768 (handles size limits), then retry on the
-        base ``MAI-Image-2.5`` deployment (handles a missing/unavailable deployment).
+        base edit deployment (handles a missing/unavailable deployment).
         """
         t0 = time.time()
         deployment = deployment or self.cfg.image_gen_deployment
@@ -206,9 +288,16 @@ class MAIClient:
                 attempts.append(
                     {"model": deployment, "prompt": prompt, "width": 768, "height": 768}
                 )
-            if deployment != "MAI-Image-2.5":
+            # `model` is the DEPLOYMENT name, which users are free to rename — never
+            # hardcode a model id here or the retry fails on custom deployments.
+            if deployment != self.cfg.image_edit_deployment:
                 attempts.append(
-                    {"model": "MAI-Image-2.5", "prompt": prompt, "width": 768, "height": 768}
+                    {
+                        "model": self.cfg.image_edit_deployment,
+                        "prompt": prompt,
+                        "width": 768,
+                        "height": 768,
+                    }
                 )
 
             last_error: Exception | None = None
@@ -221,7 +310,7 @@ class MAIClient:
                             "api-key": self.cfg.image_api_key,
                         },
                         json=payload,
-                        timeout=self.cfg.request_timeout,
+                        timeout=self.cfg.image_timeout,
                     )
                     resp.raise_for_status()
                     png = _first_b64_png(resp.json())
@@ -238,6 +327,7 @@ class MAIClient:
                     if not _is_retryable_image_error(exc):
                         break
 
+            self._degrade(last_error or RuntimeError("image request failed"))
             png = fallback.generate_image(prompt, width, height)
             return MAIResult(
                 "fallback",
@@ -260,6 +350,7 @@ class MAIClient:
         phrases: list[str] | None = None,
         verbatim: bool = False,
         locales: list[str] | None = None,
+        mime: str | None = None,
     ) -> MAIResult:
         t0 = time.time()
         definition: dict[str, Any] = {
@@ -277,9 +368,9 @@ class MAIClient:
                 resp = requests.post(
                     self.cfg.transcribe_url,
                     headers={"Ocp-Apim-Subscription-Key": self.cfg.speech_key},
-                    files={"audio": (filename, audio_bytes, "application/octet-stream")},
+                    files={"audio": (filename, audio_bytes, mime or _audio_mime(filename))},
                     data={"definition": json.dumps(definition)},
-                    timeout=self.cfg.request_timeout,
+                    timeout=self.cfg.speech_timeout,
                 )
                 resp.raise_for_status()
                 text = _extract_transcript(resp.json())
@@ -290,6 +381,7 @@ class MAIClient:
                     elapsed=time.time() - t0,
                 )
             except Exception as exc:
+                self._degrade(exc)
                 text = fallback.transcribe(phrases, verbatim)
                 return MAIResult(
                     "fallback",
@@ -328,12 +420,13 @@ class MAIClient:
                         "Ocp-Apim-Subscription-Key": self.cfg.speech_key,
                     },
                     data=ssml.encode("utf-8"),
-                    timeout=self.cfg.request_timeout,
+                    timeout=self.cfg.speech_timeout,
                 )
                 resp.raise_for_status()
-                meta["mime"] = "audio/mp3"
+                meta["mime"] = "audio/mpeg"
                 return MAIResult("live", resp.content, meta, elapsed=time.time() - t0)
             except Exception as exc:
+                self._degrade(exc)
                 audio, mime = fallback.synthesize(text)
                 meta["mime"] = mime
                 return MAIResult("fallback", audio, meta, error=str(exc), elapsed=time.time() - t0)
@@ -399,4 +492,18 @@ def _extract_transcript(payload: dict) -> str:
         for key in ("displayText", "text"):
             if payload.get(key):
                 return str(payload[key])
-    return json.dumps(payload)[:500]
+    # Never hand back raw JSON as if it were a transcript.
+    raise ValueError(f"Unrecognised transcription response shape: {json.dumps(payload)[:300]}")
+
+
+_AUDIO_MIME = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+}
+
+
+def _audio_mime(filename: str) -> str:
+    """Best-effort MIME from the file extension (Speech accepts WAV/MP3/FLAC)."""
+    ext = pathlib.Path(filename).suffix.lower()
+    return _AUDIO_MIME.get(ext, "application/octet-stream")

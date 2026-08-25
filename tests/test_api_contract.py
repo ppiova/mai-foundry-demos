@@ -198,3 +198,41 @@ def test_stream_captures_reasoning_and_stats(monkeypatch):
     assert stats["usage"]["total_tokens"] == 42
     # Opaque reasoning is carried on the message so it can be echoed back verbatim.
     assert message["reasoning"] == {"encrypted_content": "OPAQUE"}
+
+
+# ── execution mode ──────────────────────────────────────────────────────────────
+def _speech_client(strict: bool) -> MAIClient:
+    return MAIClient(
+        Config(
+            speech_key="k",
+            speech_region="eastus",
+            execution_mode="strict" if strict else "demo",
+        )
+    )
+
+
+def test_demo_mode_degrades_to_fallback(monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+    result = _speech_client(strict=False).synthesize("hello")
+    assert result.source == "fallback"
+    assert "service exploded" in (result.error or "")
+
+
+def test_strict_mode_raises_with_the_original_frame(monkeypatch):
+    """Strict mode must surface the real failure, traceback intact."""
+    import traceback
+
+    def boom(*a, **kw):
+        raise RuntimeError("service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+    with pytest.raises(RuntimeError, match="service exploded"):
+        try:
+            _speech_client(strict=True).synthesize("hello")
+        except RuntimeError as exc:
+            # The frame that actually failed must still be in the traceback.
+            assert "in boom" in "".join(traceback.format_tb(exc.__traceback__))
+            raise

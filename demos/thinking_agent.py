@@ -264,12 +264,20 @@ class PlanValidation:
     saved: float = 0.0
     saved_pct: float = 0.0
     one_time_cost: float = 0.0
-    utilization: dict[str, float] = field(default_factory=dict)
+    utilization: dict[str, float] = field(default_factory=dict)  # unrounded percentages
+    ceiling: float = 70.0
     moved: int = 0
     decommissioned: int = 0
 
-    def over_ceiling(self, ceiling: float) -> int:
-        return sum(1 for v in self.utilization.values() if v > ceiling)
+    def over_ceiling(self, ceiling: float | None = None) -> int:
+        """Regions above the ceiling.
+
+        ``utilization`` is stored unrounded on purpose: rounding to 1dp first would
+        let 70.04% display as 70.0% and slip past a ``> ceiling`` test, undercounting
+        breaches that ``violations`` already recorded.
+        """
+        limit = self.ceiling if ceiling is None else ceiling
+        return sum(1 for v in self.utilization.values() if v > limit)
 
 
 def validate_plan(
@@ -278,13 +286,29 @@ def validate_plan(
     decommissions: list[str],
     min_savings_pct: float = 20.0,
 ) -> PlanValidation:
-    """Check a proposed plan against every hard constraint, cumulatively."""
+    """Check a proposed plan against every hard constraint, cumulatively.
+
+    ``moves``/``decommissions`` come straight from model-produced JSON, so their
+    shape is untrusted: anything malformed is reported as a validation failure
+    rather than raised, which would otherwise collapse the whole run into the
+    fallback instead of showing *why* the proposal was rejected.
+    """
     violations: list[str] = []
     assignments: dict[str, str] = {}
     decommissioned: set[str] = set()
     seen: set[str] = set()
 
+    if not isinstance(decommissions, list):
+        violations.append(f"'decommissions' must be a list, got {type(decommissions).__name__}.")
+        decommissions = []
+    if not isinstance(moves, list):
+        violations.append(f"'moves' must be a list, got {type(moves).__name__}.")
+        moves = []
+
     for name in decommissions:
+        if not isinstance(name, str):
+            violations.append(f"Decommission entries must be app names, got {name!r}.")
+            continue
         app = estate.apps.get(name)
         if not app:
             violations.append(f"Unknown application '{name}' in decommissions.")
@@ -299,8 +323,14 @@ def validate_plan(
         decommissioned.add(name)
 
     for mv in moves:
+        if not isinstance(mv, dict):
+            violations.append(f"Move entries must be objects, got {mv!r}.")
+            continue
         name = mv.get("app")
         target = mv.get("target_region")
+        if not isinstance(name, str):
+            violations.append(f"Move is missing a valid 'app' name: {mv!r}.")
+            continue
         app = estate.apps.get(name)
         if not app:
             violations.append(f"Unknown application '{name}' in moves.")
@@ -324,7 +354,7 @@ def validate_plan(
     utilization: dict[str, float] = {}
     for region in estate.regions:
         util = estate.utilization(region, assignments, decommissioned)
-        utilization[region] = round(util, 1)
+        utilization[region] = util
         if util > estate.ceiling:
             violations.append(
                 f"Region '{region}' ends at {util:.1f}%, above the {estate.ceiling:.0f}% ceiling."
@@ -362,6 +392,7 @@ def validate_plan(
         saved_pct=saved_pct,
         one_time_cost=one_time,
         utilization=utilization,
+        ceiling=estate.ceiling,
         moved=len(assignments),
         decommissioned=len(decommissioned),
     )
@@ -560,7 +591,14 @@ def fallback_plan(estate: CloudEstate) -> AgentRun:
     md = _render_plan_markdown(
         estate, baseline, saved, moves, decomm_rows, assignments, decommissioned
     )
-    return AgentRun("fallback", md, trace=[], error=None)
+    # Hold the offline planner to the same bar as the model: both paths are
+    # checked by the same validator, so the badge never claims more than was proven.
+    proposal = {
+        "moves": [{"app": m["app"], "target_region": m["to"]} for m in moves],
+        "decommissions": [r["app"] for r in decomm_rows],
+    }
+    validation = validate_plan(estate, proposal["moves"], proposal["decommissions"])
+    return AgentRun("fallback", md, trace=[], error=None, validation=validation, proposal=proposal)
 
 
 def _all_within_ceiling(estate, assignments, decommissioned) -> bool:
@@ -686,7 +724,7 @@ def render(client: MAIClient) -> None:
             c1.metric("Verified savings", f"{v.saved_pct:.1f}%", f"-${v.saved:,.0f}/mo")
             c2.metric("Apps moved", v.moved)
             c3.metric("Decommissioned", v.decommissioned)
-            c4.metric("Regions over ceiling", v.over_ceiling(CloudEstate().ceiling))
+            c4.metric("Regions over ceiling", v.over_ceiling())
             if v.ok:
                 st.success(
                     "Model proposal received · every hard constraint re-checked in code · numbers above are recomputed, not quoted."

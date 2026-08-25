@@ -66,11 +66,6 @@ class MAIClient:
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or get_config()
 
-    def _degrade(self, exc: Exception) -> None:
-        """Re-raise in strict mode; swallow (to fall back) in demo mode."""
-        if self.cfg.strict:
-            raise exc
-
     # ── Thinking-1 (raw chat; the tool loop lives in demos/thinking_agent.py) ──
     def thinking_ready(self) -> bool:
         return self.cfg.foundry_ready
@@ -260,7 +255,8 @@ class MAIClient:
                     elapsed=time.time() - t0,
                 )
             except Exception as exc:  # degrade
-                self._degrade(exc)
+                if self.cfg.strict:
+                    raise
                 png = fallback.edit_image(image_bytes, prompt)
                 return MAIResult(
                     "fallback", png, {"prompt": prompt}, error=str(exc), elapsed=time.time() - t0
@@ -327,7 +323,8 @@ class MAIClient:
                     if not _is_retryable_image_error(exc):
                         break
 
-            self._degrade(last_error or RuntimeError("image request failed"))
+            if self.cfg.strict:
+                raise last_error or RuntimeError("image request failed")
             png = fallback.generate_image(prompt, width, height)
             return MAIResult(
                 "fallback",
@@ -381,7 +378,8 @@ class MAIClient:
                     elapsed=time.time() - t0,
                 )
             except Exception as exc:
-                self._degrade(exc)
+                if self.cfg.strict:
+                    raise
                 text = fallback.transcribe(phrases, verbatim)
                 return MAIResult(
                     "fallback",
@@ -426,7 +424,8 @@ class MAIClient:
                 meta["mime"] = "audio/mpeg"
                 return MAIResult("live", resp.content, meta, elapsed=time.time() - t0)
             except Exception as exc:
-                self._degrade(exc)
+                if self.cfg.strict:
+                    raise
                 audio, mime = fallback.synthesize(text)
                 meta["mime"] = mime
                 return MAIResult("fallback", audio, meta, error=str(exc), elapsed=time.time() - t0)

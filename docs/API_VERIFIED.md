@@ -12,25 +12,56 @@ All referenced models exist and are documented. Three are in **public preview**
 
 ## 1. MAI-Thinking-1 (reasoning + function calling)
 
-- **Compatibility:** OpenAI Chat Completions (Foundry v1).
-- **Endpoint:** `POST {FOUNDRY_ENDPOINT}/openai/v1/chat/completions`
+- **Endpoint (used by this repo):** `POST {FOUNDRY_ENDPOINT}/mai/v1/chat/completions`
   - `FOUNDRY_ENDPOINT` = `https://<your-resource>.services.ai.azure.com`
-    (also accepts `https://<your-resource>.openai.azure.com`)
-  - With the v1 API, no `api-version` is required.
+  - No `api-version` query parameter is required.
+  - The OpenAI-compatible `POST {FOUNDRY_ENDPOINT}/openai/v1/chat/completions` also
+    answers, but **rejects `reasoning_display`** with
+    `unrecognized_request_argument`. We use the native `/mai/v1/` path so the agent
+    can carry reasoning state across tool rounds.
 - **Auth:** header `api-key: <KEY>` (or `Authorization: Bearer <Entra token>`).
-- **Body:** standard OpenAI JSON — `model`, `messages`, `tools`, `tool_choice`.
+- **Body:** `model`, `messages`, `tools`, `max_completion_tokens`, `stream`,
+  `reasoning_display`.
   - `model` = the **deployment name** (typically `MAI-Thinking-1`).
-- **Function calling:** `tools=[{"type":"function","function":{...}}]`,
-  `tool_choice="auto"`. Response in `choices[0].message.tool_calls[]`.
+- **Function calling:** `tools=[{"type":"function","function":{...}}]`. Response in
+  `choices[0].message.tool_calls[]`. `tool_choice` is accepted but optional — this
+  repo only sends it alongside `tools`.
 - **Context:** 256K tokens.
-- **Streaming (`stream:true`):** supported. ⚠️ Quirk verified 2026-08-13: on this
-  deployment each tool call arrives **complete in its own chunk, with `id` but no
-  `index`** (not fragmented like standard OpenAI streaming). The parser in
-  `mai/client.py` (`_tc_slot`) handles both formats.
-- **Verified working (2026-08-13):** base `https://<your-resource>.services.ai.azure.com`,
-  path `/openai/v1/chat/completions`, header `api-key`, `model="MAI-Thinking-1"`,
-  accepts `temperature` and `max_completion_tokens`. List a project's real deployments
-  with `GET {project_endpoint}/deployments?api-version=2025-05-01`.
+
+### Parameter contract — verified empirically (2026-08-24)
+
+Each row was sent against a live `MAI-Thinking-1` deployment:
+
+| Parameter | Result |
+| --- | --- |
+| `max_tokens` | ❌ **HTTP 400** — `` `max_tokens` is not supported; use `max_completion_tokens` instead `` (on **both** paths) |
+| `max_completion_tokens` | ✅ 200 |
+| `temperature` | ✅ 200 (accepted, though absent from the documented parameter list — sent only when a caller explicitly asks) |
+| `reasoning_display: "encrypted"` | ✅ 200 on `/mai/v1/` · ❌ 400 `unrecognized_request_argument` on `/openai/v1/` |
+| `tools` without `tool_choice` | ✅ 200, still returns `tool_calls` |
+
+### Reasoning state across tool rounds
+
+With `reasoning_display: "encrypted"`, the assistant message carries an opaque
+`reasoning` object (`encrypted_content`, `content`, `summary`) — in streaming it
+arrives on `delta.reasoning`. Append that assistant message back **verbatim** on the
+next round so the model keeps its reasoning state; never render or log the blob.
+
+### Streaming quirks
+
+- ⚠️ Each tool call arrives **complete in its own chunk, with `id` but no `index`**
+  (not fragmented like standard OpenAI streaming). A parser that assumes OpenAI's
+  indexed deltas will concatenate arguments into invalid JSON. `_tc_slot` in
+  `mai/client.py` handles both shapes.
+- ⚠️ An error can be delivered **inside** the stream after partial content (e.g. a
+  safety block): a `{"error": {...}}` event followed by `[DONE]`. Ignoring non-`choices`
+  events would present truncated text as a complete answer — `mai/client.py` raises
+  `MAIStreamError` instead.
+- `usage`, `model`, `system_fingerprint` and the request id arrive at the top level of
+  chunks and are surfaced for observability.
+
+List a project's real deployments with
+`GET {project_endpoint}/deployments?api-version=2025-05-01`.
 
 Sources:
 - https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle

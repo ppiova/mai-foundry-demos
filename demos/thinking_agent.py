@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -225,7 +226,11 @@ SYSTEM_PROMPT = (
     "workloads to cheaper regions with headroom. When done, output a clear Markdown "
     "plan: a summary line with baseline vs new monthly cost and % saved, a table of "
     "moves/decommissions, the resulting per-region utilization, and a short "
-    "'Tradeoffs & risks' section (mention dependencies and one-time migration cost)."
+    "'Tradeoffs & risks' section (mention dependencies and one-time migration cost).\n"
+    "Finally, append a fenced ```json block with the machine-checkable plan:\n"
+    '{"moves": [{"app": "<name>", "target_region": "<region>"}], '
+    '"decommissions": ["<name>"], "risks": ["<short note>"]}\n'
+    "It must list every action exactly once and match the table above."
 )
 
 
@@ -236,6 +241,143 @@ class AgentRun:
     trace: list = field(default_factory=list)  # list of (tool, args, result)
     error: str | None = None
     elapsed: float = 0.0
+    validation: PlanValidation | None = None  # deterministic check of the proposal
+    proposal: dict | None = None  # structured plan the model returned, if any
+    stats: dict = field(default_factory=dict)  # usage / finish_reason / request_id
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deterministic plan validation
+#
+# The model *proposes*; this code *decides*. `calculate_migration_cost` scores each
+# proposal against the untouched baseline, so two moves that are individually fine
+# can still breach the 70% ceiling once combined. Everything the UI reports as fact
+# — savings, utilization, constraint compliance — is recomputed here from the
+# estate, never taken from the model's prose.
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class PlanValidation:
+    ok: bool
+    violations: list[str] = field(default_factory=list)
+    baseline_cost: float = 0.0
+    new_cost: float = 0.0
+    saved: float = 0.0
+    saved_pct: float = 0.0
+    one_time_cost: float = 0.0
+    utilization: dict[str, float] = field(default_factory=dict)
+    moved: int = 0
+    decommissioned: int = 0
+
+    def over_ceiling(self, ceiling: float) -> int:
+        return sum(1 for v in self.utilization.values() if v > ceiling)
+
+
+def validate_plan(
+    estate: CloudEstate,
+    moves: list[dict],
+    decommissions: list[str],
+    min_savings_pct: float = 20.0,
+) -> PlanValidation:
+    """Check a proposed plan against every hard constraint, cumulatively."""
+    violations: list[str] = []
+    assignments: dict[str, str] = {}
+    decommissioned: set[str] = set()
+    seen: set[str] = set()
+
+    for name in decommissions:
+        app = estate.apps.get(name)
+        if not app:
+            violations.append(f"Unknown application '{name}' in decommissions.")
+            continue
+        if name in seen:
+            violations.append(f"'{name}' appears more than once in the plan.")
+            continue
+        seen.add(name)
+        if app["tier"] == 1:
+            violations.append(f"'{name}' is Tier-1 and must not be decommissioned.")
+            continue
+        decommissioned.add(name)
+
+    for mv in moves:
+        name = mv.get("app")
+        target = mv.get("target_region")
+        app = estate.apps.get(name)
+        if not app:
+            violations.append(f"Unknown application '{name}' in moves.")
+            continue
+        if name in seen:
+            violations.append(f"'{name}' appears more than once in the plan.")
+            continue
+        seen.add(name)
+        if target not in estate.regions:
+            violations.append(f"Unknown target region '{target}' for '{name}'.")
+            continue
+        if app["tier"] == 1:
+            violations.append(f"'{name}' is Tier-1 and must not be moved.")
+            continue
+        if not app["can_migrate"]:
+            violations.append(f"'{name}' is flagged as non-migratable.")
+            continue
+        assignments[name] = target
+
+    # Cumulative capacity — the check a per-proposal tool call cannot make.
+    utilization: dict[str, float] = {}
+    for region in estate.regions:
+        util = estate.utilization(region, assignments, decommissioned)
+        utilization[region] = round(util, 1)
+        if util > estate.ceiling:
+            violations.append(
+                f"Region '{region}' ends at {util:.1f}%, above the {estate.ceiling:.0f}% ceiling."
+            )
+
+    # Dependencies of a decommissioned app must not be left dangling.
+    for name, app in estate.apps.items():
+        if name in decommissioned:
+            continue
+        for dep in app.get("dependencies", []):
+            if dep in decommissioned:
+                violations.append(f"'{name}' depends on decommissioned '{dep}'.")
+
+    baseline = estate.baseline_cost()
+    saved = 0.0
+    one_time = 0.0
+    for name in decommissioned:
+        saved += estate.apps[name]["monthly_cost"]
+    for name, target in assignments.items():
+        saved += estate.apps[name]["monthly_cost"] - estate.effective_cost(name, target)
+        one_time += estate.apps[name]["monthly_cost"] * 0.5
+
+    saved_pct = 100.0 * saved / baseline if baseline else 0.0
+    if saved_pct < min_savings_pct:
+        violations.append(
+            f"Savings {saved_pct:.1f}% fall short of the {min_savings_pct:.0f}% target."
+        )
+
+    return PlanValidation(
+        ok=not violations,
+        violations=violations,
+        baseline_cost=baseline,
+        new_cost=baseline - saved,
+        saved=saved,
+        saved_pct=saved_pct,
+        one_time_cost=one_time,
+        utilization=utilization,
+        moved=len(assignments),
+        decommissioned=len(decommissioned),
+    )
+
+
+def extract_structured_plan(text: str) -> dict | None:
+    """Pull the trailing ```json {...}``` plan out of the model's answer, if present."""
+    blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    for block in reversed(blocks):
+        try:
+            data = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and ("moves" in data or "decommissions" in data):
+            return data
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,27 +418,38 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
         },
     ]
     trace = []
+    stats: dict = {}
     try:
         for rnd in range(1, max_rounds + 1):
             emit("round", n=rnd)
             msg, produced = None, ""
+            # `reasoning_display="encrypted"` returns an opaque reasoning blob that we
+            # append back untouched, so the model keeps its reasoning state across
+            # tool rounds without ever exposing the chain of thought.
             stream = (
-                client.chat_completion_stream(messages, tools=TOOLS_SCHEMA, tool_choice="auto")
+                client.chat_completion_stream(
+                    messages,
+                    tools=TOOLS_SCHEMA,
+                    tool_choice="auto",
+                    reasoning_display="encrypted",
+                )
                 if rnd < max_rounds
-                else client.chat_completion_stream(messages)
+                else client.chat_completion_stream(messages, reasoning_display="encrypted")
             )
             for kind, val in stream:
                 if kind == "content":
                     produced += val
                     emit("delta", text=val)
+                elif kind == "stats":
+                    stats.update(val)
+                    emit("stats", **val)
                 elif kind == "message":
                     msg = val
             messages.append(msg)
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
-                return AgentRun(
-                    "live", msg.get("content") or produced or "", trace, elapsed=time.time() - t0
-                )
+                answer = msg.get("content") or produced or ""
+                return _finish_live(estate, answer, trace, time.time() - t0, stats)
             for tc in tool_calls:
                 fn = tc["function"]["name"]
                 args = json.loads(tc["function"].get("arguments") or "{}")
@@ -311,12 +464,33 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                         "content": json.dumps(result),
                     }
                 )
-        return AgentRun("live", produced or "", trace, elapsed=time.time() - t0)
+        return _finish_live(estate, produced or "", trace, time.time() - t0, stats)
     except Exception as exc:
         run = fallback_plan(estate)
         run.error = str(exc)
         run.elapsed = time.time() - t0
         return run
+
+
+def _finish_live(
+    estate: CloudEstate, answer: str, trace: list, elapsed: float, stats: dict
+) -> AgentRun:
+    """Wrap a live answer, validating the structured plan when the model supplied one."""
+    proposal = extract_structured_plan(answer)
+    validation = None
+    if proposal:
+        validation = validate_plan(
+            estate, proposal.get("moves") or [], proposal.get("decommissions") or []
+        )
+    return AgentRun(
+        "live",
+        answer,
+        trace,
+        elapsed=elapsed,
+        validation=validation,
+        proposal=proposal,
+        stats=stats,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -501,6 +675,31 @@ def render(client: MAIClient) -> None:
                 f"Live call failed → fell back to the deterministic planner. Detail: {run.error}"
             )
         plan_ph.markdown(run.plan_markdown)
+
+        # The model proposes; this panel reports what deterministic code verified.
+        if run.validation is not None:
+            v = run.validation
+            st.markdown(
+                "#### ✅ Deterministic validation" if v.ok else "#### ❌ Deterministic validation"
+            )
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Verified savings", f"{v.saved_pct:.1f}%", f"-${v.saved:,.0f}/mo")
+            c2.metric("Apps moved", v.moved)
+            c3.metric("Decommissioned", v.decommissioned)
+            c4.metric("Regions over ceiling", v.over_ceiling(CloudEstate().ceiling))
+            if v.ok:
+                st.success(
+                    "Model proposal received · every hard constraint re-checked in code · numbers above are recomputed, not quoted."
+                )
+            else:
+                st.error("The proposal failed deterministic validation:")
+                for violation in v.violations:
+                    st.markdown(f"- {violation}")
+        elif run.source == "live":
+            st.info(
+                "The model returned prose without a machine-checkable `json` plan, so the numbers above are unverified."
+            )
+
         if run.trace:
             with st.expander(f"🔧 Tool-call trace ({len(run.trace)} calls)", expanded=False):
                 for i, (fn, args, res) in enumerate(run.trace, 1):

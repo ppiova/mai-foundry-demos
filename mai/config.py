@@ -58,7 +58,42 @@ class Config:
         default_factory=lambda: _env("MAI_TRANSCRIBE_API_VERSION", "2025-10-15")
     )
 
-    request_timeout: int = 90
+    # Per-service (connect, read) timeouts. Reasoning legitimately streams for
+    # 30-150s, so a single short budget would abort healthy runs; image and speech
+    # are much faster and should fail sooner.
+    connect_timeout: int = 10
+    thinking_read_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_THINKING_READ_TIMEOUT", "300"))
+    )
+    image_read_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_IMAGE_READ_TIMEOUT", "180"))
+    )
+    speech_read_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_SPEECH_READ_TIMEOUT", "90"))
+    )
+
+    # "demo" (default): a failed live call degrades to a labelled fallback so a
+    # stage demo never dies. "strict": live failures raise, so pre-flight checks
+    # and CI can actually fail. See MAI_EXECUTION_MODE in .env.example.
+    execution_mode: str = field(default_factory=lambda: _env("MAI_EXECUTION_MODE", "demo").lower())
+
+    # ── timeouts / execution mode ────────────────────────────────────────────
+    @property
+    def strict(self) -> bool:
+        """True when live failures must raise instead of degrading to fallback."""
+        return self.execution_mode == "strict"
+
+    @property
+    def thinking_timeout(self) -> tuple[int, int]:
+        return (self.connect_timeout, self.thinking_read_timeout)
+
+    @property
+    def image_timeout(self) -> tuple[int, int]:
+        return (self.connect_timeout, self.image_read_timeout)
+
+    @property
+    def speech_timeout(self) -> tuple[int, int]:
+        return (self.connect_timeout, self.speech_read_timeout)
 
     # ── readiness flags ──────────────────────────────────────────────────────
     @property
@@ -80,7 +115,15 @@ class Config:
     # ── derived URLs ─────────────────────────────────────────────────────────
     @property
     def chat_url(self) -> str:
-        return f"{self.foundry_endpoint}/openai/v1/chat/completions"
+        """Native MAI chat-completions surface.
+
+        Both ``/mai/v1/chat/completions`` and the OpenAI-compatible
+        ``/openai/v1/chat/completions`` answer for MAI-Thinking-1, but only the
+        native path accepts ``reasoning_display`` (the OpenAI shim rejects it with
+        ``unrecognized_request_argument``). Verified against a live deployment;
+        see docs/API_VERIFIED.md.
+        """
+        return f"{self.foundry_endpoint}/mai/v1/chat/completions"
 
     def image_url(self, kind: str) -> str:
         # kind in {"edits", "generations"}

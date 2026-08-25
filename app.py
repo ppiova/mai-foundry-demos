@@ -71,7 +71,7 @@ def sidebar(cfg):
             f"Region `{cfg.speech_region}` · key {'set' if cfg.speech_key else 'missing'}",
         )
         st.divider()
-        if not (cfg.foundry_ready or cfg.speech_ready):
+        if not (cfg.foundry_ready or cfg.image_ready or cfg.speech_ready or cfg.transcribe_ready):
             st.info(
                 "No keys detected — running fully in **FALLBACK** mode. Copy `.env.example` to `.env` and add keys to go LIVE."
             )

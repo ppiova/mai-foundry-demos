@@ -318,13 +318,13 @@ class MAIClient:
                     )
                 except Exception as exc:
                     last_error = exc
-                    if payload is attempts[-1]:
+                    if payload is attempts[-1] or not _is_retryable_image_error(exc):
+                        # Give up. Raising here (bare, inside the except block) keeps
+                        # the traceback free of the extra frame that re-raising a
+                        # saved exception after the loop would add.
+                        if self.cfg.strict:
+                            raise
                         break
-                    if not _is_retryable_image_error(exc):
-                        break
-
-            if self.cfg.strict:
-                raise last_error or RuntimeError("image request failed")
             png = fallback.generate_image(prompt, width, height)
             return MAIResult(
                 "fallback",

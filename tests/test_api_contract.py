@@ -198,3 +198,96 @@ def test_stream_captures_reasoning_and_stats(monkeypatch):
     assert stats["usage"]["total_tokens"] == 42
     # Opaque reasoning is carried on the message so it can be echoed back verbatim.
     assert message["reasoning"] == {"encrypted_content": "OPAQUE"}
+
+
+# ── execution mode ──────────────────────────────────────────────────────────────
+def _speech_client(strict: bool) -> MAIClient:
+    return MAIClient(
+        Config(
+            speech_key="k",
+            speech_region="eastus",
+            execution_mode="strict" if strict else "demo",
+        )
+    )
+
+
+def test_demo_mode_degrades_to_fallback(monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+    result = _speech_client(strict=False).synthesize("hello")
+    assert result.source == "fallback"
+    assert "service exploded" in (result.error or "")
+
+
+def test_strict_mode_raises_with_a_clean_traceback(monkeypatch):
+    """Strict mode surfaces the real failure without a helper detour.
+
+    Asserting only that the failing frame survives would not protect this: the
+    previous ``_degrade()`` helper preserved it too. What the bare ``raise``
+    buys is the absence of an extra hop through the helper, so the traceback
+    reads caller -> requests.post -> boom and nothing else.
+    """
+    import traceback
+
+    def boom(*a, **kw):
+        raise RuntimeError("service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+
+    try:
+        _speech_client(strict=True).synthesize("hello")
+    except RuntimeError as exc:
+        assert "service exploded" in str(exc)
+        names = [f.name for f in traceback.extract_tb(exc.__traceback__)]
+        assert "boom" in names, names
+        assert "_degrade" not in names, f"strict re-raise detoured through a helper: {names}"
+        # synthesize appears once (the raise site), not twice as it would when an
+        # inner helper re-raises back out through the caller.
+        assert names.count("synthesize") == 1, names
+    else:
+        raise AssertionError("strict mode should have raised instead of degrading")
+
+
+def test_strict_image_generation_raises_without_an_extra_frame(monkeypatch):
+    """The retry loop must give up with a bare raise, like the other methods."""
+    import traceback
+
+    def boom(*a, **kw):
+        raise RuntimeError("image service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+    client = MAIClient(
+        Config(
+            image_endpoint="https://example.services.ai.azure.com",
+            image_api_key="k",
+            execution_mode="strict",
+        )
+    )
+    try:
+        client.generate_image("a red circle", 768, 768)
+    except RuntimeError as exc:
+        names = [f.name for f in traceback.extract_tb(exc.__traceback__)]
+        assert "boom" in names, names
+        # Re-raising a saved exception after the loop would list generate_image twice.
+        assert names.count("generate_image") == 1, names
+    else:
+        raise AssertionError("strict mode should have raised instead of degrading")
+
+
+def test_demo_image_generation_still_degrades(monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("image service exploded")
+
+    monkeypatch.setattr("mai.client.requests.post", boom)
+    client = MAIClient(
+        Config(
+            image_endpoint="https://example.services.ai.azure.com",
+            image_api_key="k",
+            execution_mode="demo",
+        )
+    )
+    result = client.generate_image("a red circle", 768, 768)
+    assert result.source == "fallback"
+    assert "image service exploded" in (result.error or "")

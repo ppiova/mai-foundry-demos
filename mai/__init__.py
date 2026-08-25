@@ -1,6 +1,6 @@
 """MAI demos — shared client library."""
 
-from .client import MAIClient, MAIResult
+from .client import MAIClient, MAIResult, audio_extension_for_mime
 from .config import (
     DEMO_VOICES,
     VOICE_PRESETS,
@@ -14,6 +14,7 @@ from .ssml import build_ssml
 __all__ = [
     "MAIClient",
     "MAIResult",
+    "audio_extension_for_mime",
     "Config",
     "get_config",
     "build_ssml",

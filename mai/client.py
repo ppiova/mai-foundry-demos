@@ -122,6 +122,7 @@ class MAIClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        max_completion_tokens: int | None = None,
         reasoning_display: str | None = None,
     ):
         """Stream a chat completion (SSE) from MAI-Thinking-1.
@@ -139,7 +140,7 @@ class MAIClient:
         """
         if not self.cfg.foundry_ready:
             raise RuntimeError("Thinking service is not configured")
-        payload = self._chat_payload(messages, tools, None, reasoning_display)
+        payload = self._chat_payload(messages, tools, max_completion_tokens, reasoning_display)
         payload["stream"] = True
 
         content_parts: list[str] = []
@@ -230,11 +231,13 @@ class MAIClient:
         if tool_acc:
             message["tool_calls"] = [
                 {
-                    "id": s["id"] or f"call_{i}",
+                    # Never invent a service tool-call id: the follow-up must refer
+                    # to the actual opaque id or reject the malformed call.
+                    "id": s["id"],
                     "type": "function",
                     "function": {"name": s["name"], "arguments": s["args"] or "{}"},
                 }
-                for i, s in enumerate(tool_acc)
+                for s in tool_acc
             ]
         # Opaque reasoning state — echoed back untouched, never displayed.
         if stats:
@@ -551,7 +554,23 @@ def _validate_audio(audio_bytes: bytes, filename: str, mime: str | None) -> str:
     if supplied in _SUPPORTED_AUDIO_MIMES:
         return supplied
     if inferred in _SUPPORTED_AUDIO_MIMES:
-        # Preserve a real uploaded MIME value even if the browser reports a generic
-        # binary type; the extension still provides deterministic format validation.
-        return supplied or inferred
+        # Browsers sometimes report application/octet-stream. The supported file
+        # extension is more useful and must be the MIME sent to Speech.
+        return inferred
     raise ValueError("Unsupported audio format; use WAV, MP3, or FLAC")
+
+
+_AUDIO_EXTENSION_BY_MIME = {
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/flac": ".flac",
+    "audio/x-flac": ".flac",
+}
+
+
+def audio_extension_for_mime(mime: str | None) -> str:
+    """Return a filename extension that matches actual audio metadata."""
+    normalized = (mime or "").split(";", 1)[0].strip().lower()
+    return _AUDIO_EXTENSION_BY_MIME.get(normalized, ".bin")

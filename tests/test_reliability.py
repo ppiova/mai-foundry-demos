@@ -7,7 +7,7 @@ import pytest
 
 from demos.multimodal_campaign import Campaign, _parse_json, generate_brief
 from demos.thinking_agent import CloudEstate, execute_tool_call, run_agent
-from mai.client import MAIClient
+from mai.client import MAIClient, audio_extension_for_mime
 from mai.config import Config
 
 
@@ -70,6 +70,34 @@ def test_uploaded_audio_mime_is_preserved(monkeypatch):
     assert result.meta["mime"] == "audio/mpeg"
 
 
+def test_generic_audio_mime_falls_back_to_supported_extension_mime(monkeypatch):
+    post = Mock(return_value=_TranscriptResponse())
+    monkeypatch.setattr("mai.client.requests.post", post)
+    client = MAIClient(Config(speech_endpoint="https://speech.example", speech_key="key"))
+    result = client.transcribe(
+        b"mp3 bytes",
+        filename="voice.mp3",
+        mime="application/octet-stream",
+    )
+    assert post.call_args.kwargs["files"]["audio"][2] == "audio/mpeg"
+    assert result.meta["mime"] == "audio/mpeg"
+
+
+@pytest.mark.parametrize(
+    ("mime", "extension"),
+    [
+        ("audio/mpeg", ".mp3"),
+        ("audio/mp3", ".mp3"),
+        ("audio/wav", ".wav"),
+        ("audio/x-wav", ".wav"),
+        ("audio/flac", ".flac"),
+        ("audio/x-flac", ".flac"),
+    ],
+)
+def test_audio_extension_matches_actual_mime(mime, extension):
+    assert audio_extension_for_mime(mime) == extension
+
+
 def test_voice_mp3_response_uses_audio_mpeg_metadata(monkeypatch):
     monkeypatch.setattr("mai.client.requests.post", Mock(return_value=_TranscriptResponse()))
     client = MAIClient(Config(speech_key="key", speech_region="eastus"))
@@ -77,6 +105,14 @@ def test_voice_mp3_response_uses_audio_mpeg_metadata(monkeypatch):
     assert result.source == "live"
     assert result.data == b"mp3 bytes"
     assert result.meta["mime"] == "audio/mpeg"
+    assert "sample" + audio_extension_for_mime(result.meta["mime"]) == "sample.mp3"
+
+
+def test_fallback_wave_audio_is_named_wav(monkeypatch):
+    monkeypatch.setattr("mai.client.fallback.synthesize", Mock(return_value=(b"wav", "audio/wav")))
+    result = MAIClient(Config()).synthesize("hello")
+    assert result.meta["mime"] == "audio/wav"
+    assert "sample" + audio_extension_for_mime(result.meta["mime"]) == "sample.wav"
 
 
 def test_transcript_parse_failure_raises_in_strict_mode(monkeypatch):
@@ -109,20 +145,50 @@ def test_campaign_schema_requires_nonempty_strings():
         _parse_json(json.dumps(complete))
 
 
+def test_campaign_uses_reasoning_safe_completion_budget(monkeypatch):
+    payload = {
+        "campaign_name": "Launch",
+        "tagline": "Go",
+        "creative_brief": "A brief",
+        "hero_image_prompt": "A prompt",
+        "voiceover_script": "A script",
+    }
+    client = MAIClient(Config(foundry_endpoint="https://foundry.example", foundry_api_key="key"))
+    completion = Mock(return_value={"choices": [{"message": {"content": json.dumps(payload)}}]})
+    monkeypatch.setattr(client, "chat_completion", completion)
+    campaign, source, error = generate_brief(client, "Launch")
+    assert campaign.campaign_name == "Launch"
+    assert source == "live" and error is None
+    assert completion.call_args.kwargs["max_completion_tokens"] == 8192
+
+
 def test_unknown_and_malformed_tools_are_not_dispatched(monkeypatch):
     estate = CloudEstate()
     dispatch = Mock(side_effect=AssertionError("must not execute"))
     monkeypatch.setattr(estate, "dispatch", dispatch)
 
     _, _, unknown = execute_tool_call(
-        estate, {"function": {"name": "delete_everything", "arguments": "{}"}}
+        estate, {"id": "call-1", "function": {"name": "delete_everything", "arguments": "{}"}}
     )
     _, _, malformed = execute_tool_call(
-        estate, {"function": {"name": "get_region_capacity", "arguments": "{"}}
+        estate, {"id": "call-2", "function": {"name": "get_region_capacity", "arguments": "{"}}
     )
 
     assert "not executed" in unknown["error"]
     assert "Malformed" in malformed["error"]
+    dispatch.assert_not_called()
+
+
+def test_missing_tool_call_id_is_a_controlled_error(monkeypatch):
+    estate = CloudEstate()
+    dispatch = Mock(side_effect=AssertionError("must not execute"))
+    monkeypatch.setattr(estate, "dispatch", dispatch)
+    name, args, result = execute_tool_call(
+        estate, {"function": {"name": "get_region_capacity", "arguments": '{"region":"eastus"}'}}
+    )
+    assert name == "invalid_tool_call"
+    assert args == {}
+    assert "missing non-empty id" in result["error"]
     dispatch.assert_not_called()
 
 

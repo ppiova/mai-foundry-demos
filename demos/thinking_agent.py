@@ -249,10 +249,11 @@ class MigrationPlan:
     @classmethod
     def from_validated_mapping(cls, proposal: dict) -> MigrationPlan:
         """Create typed data only after ``validate_plan`` accepts the raw mapping."""
+        risks = proposal.get("risks", [])
         return cls(
             moves=tuple(PlanMove(item["app"], item["target_region"]) for item in proposal["moves"]),
             decommissions=tuple(proposal["decommissions"]),
-            risks=tuple(item for item in proposal.get("risks", []) if isinstance(item, str)),
+            risks=tuple(risks) if isinstance(risks, list) else (),
         )
 
     def validation_inputs(self) -> tuple[list[dict], list[str]]:
@@ -297,6 +298,7 @@ class PlanValidation:
     ceiling: float = 70.0
     moved: int = 0
     decommissioned: int = 0
+    risks: tuple[str, ...] = ()
 
     def over_ceiling(self, ceiling: float | None = None) -> int:
         """Regions above the ceiling.
@@ -314,6 +316,7 @@ def validate_plan(
     moves: list[dict],
     decommissions: list[str],
     min_savings_pct: float = 20.0,
+    risks: object = None,
 ) -> PlanValidation:
     """Check a proposed plan against every hard constraint, cumulatively.
 
@@ -326,6 +329,17 @@ def validate_plan(
     assignments: dict[str, str] = {}
     decommissioned: set[str] = set()
     seen: set[str] = set()
+    normalized_risks: list[str] = []
+
+    if risks is not None:
+        if not isinstance(risks, list):
+            violations.append(f"'risks' must be a list, got {type(risks).__name__}.")
+        else:
+            for risk in risks:
+                if not isinstance(risk, str) or not risk.strip():
+                    violations.append("Risk entries must be non-empty strings.")
+                else:
+                    normalized_risks.append(risk.strip())
 
     if not isinstance(decommissions, list):
         violations.append(f"'decommissions' must be a list, got {type(decommissions).__name__}.")
@@ -348,6 +362,9 @@ def validate_plan(
         seen.add(name)
         if app["tier"] == 1:
             violations.append(f"'{name}' is Tier-1 and must not be decommissioned.")
+            continue
+        if not app.get("idle_candidate"):
+            violations.append(f"'{name}' is active and is not an idle decommission candidate.")
             continue
         decommissioned.add(name)
 
@@ -380,6 +397,11 @@ def validate_plan(
             continue
         if not app["can_migrate"]:
             violations.append(f"'{name}' is flagged as non-migratable.")
+            continue
+        if target == app["region"]:
+            violations.append(
+                f"'{name}' is already in '{target}'; same-region moves are not actions."
+            )
             continue
         assignments[name] = target
 
@@ -428,6 +450,7 @@ def validate_plan(
         ceiling=estate.ceiling,
         moved=len(assignments),
         decommissioned=len(decommissioned),
+        risks=tuple(normalized_risks),
     )
 
 
@@ -463,6 +486,9 @@ _KNOWN_TOOLS = {item["function"]["name"] for item in TOOLS_SCHEMA}
 def execute_tool_call(estate: CloudEstate, tool_call: dict) -> tuple[str, dict, dict]:
     """Validate an untrusted model tool call before dispatching any local function."""
     function = tool_call.get("function") if isinstance(tool_call, dict) else None
+    call_id = tool_call.get("id") if isinstance(tool_call, dict) else None
+    if not isinstance(call_id, str) or not call_id.strip():
+        return "invalid_tool_call", {}, {"error": "Malformed tool call: missing non-empty id."}
     if not isinstance(function, dict):
         return "invalid_tool_call", {}, {"error": "Malformed tool call: missing function."}
     name = function.get("name")
@@ -555,10 +581,13 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                 fn, args, result = execute_tool_call(estate, tc)
                 trace.append((fn, args, result))
                 emit("tool", name=fn, args=args, result=result, summary=_tool_summary(fn, result))
+                call_id = tc.get("id") if isinstance(tc, dict) else None
+                if not isinstance(call_id, str) or not call_id.strip():
+                    raise ValueError(result.get("error", "Malformed tool call id"))
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc["id"],
+                        "tool_call_id": call_id,
                         "name": fn,
                         "content": json.dumps(result),
                     }
@@ -583,14 +612,17 @@ def _finish_live(
         # malformed-but-falsy value ({}, null, "") into an empty list and slip it
         # past the shape checks in validate_plan().
         validation = validate_plan(
-            estate, proposal.get("moves", []), proposal.get("decommissions", [])
+            estate,
+            proposal.get("moves", []),
+            proposal.get("decommissions", []),
+            risks=proposal.get("risks"),
         )
         if validation.ok:
             structured = MigrationPlan.from_validated_mapping(
                 {
                     "moves": proposal.get("moves", []),
                     "decommissions": proposal.get("decommissions", []),
-                    "risks": proposal.get("risks", []),
+                    "risks": list(validation.risks),
                 }
             )
             return AgentRun(

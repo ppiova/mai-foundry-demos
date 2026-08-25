@@ -42,10 +42,10 @@ per-region limit, separate from the account itself. If `az deployment group
 validate` (or the real deployment) fails with `InsufficientQuota`, you're not
 looking at a template bug: either lower `thinkingCapacity`, delete/shrink an
 existing `MAI-Thinking-1` deployment in that region, or request more quota:
-https://aka.ms/oai/stuquotarequest. This template was validated end-to-end
-against a live Azure subscription (`az deployment group validate`) — it passed
-every schema and property check; the only rejection we hit while testing was
-this exact quota limit, not the template.
+https://aka.ms/oai/stuquotarequest. An earlier authorized
+`az deployment group validate` run checked the Azure deployment/schema contract;
+that command was not an end-to-end deployment or a live model endpoint test. No live
+endpoint verification was performed for PR #4.
 
 ## After deploying: fill in `.env`
 

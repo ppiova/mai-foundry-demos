@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import streamlit as st
 
-from mai import MAIClient
+from mai import MAIClient, audio_extension_for_mime
 
 DEFAULT_BRIEF = (
     "Create a launch campaign for a new sustainable smart backpack targeted at business travelers."
@@ -63,7 +63,8 @@ def generate_brief(client: MAIClient, brief_text: str) -> tuple[Campaign, str, s
                     {"role": "system", "content": _BRIEF_SYSTEM},
                     {"role": "user", "content": brief_text},
                 ],
-                max_completion_tokens=2048,
+                # The budget includes reasoning tokens as well as the short JSON.
+                max_completion_tokens=8192,
             )
             content = resp["choices"][0]["message"].get("content") or ""
             return _parse_json(content), "live", None
@@ -145,7 +146,9 @@ def render(client: MAIClient) -> None:
         if tts.data:
             st.session_state["mm_audio"] = tts.data
             st.session_state["mm_audio_mime"] = tts.meta.get("mime", "audio/mp3")
-            st.session_state["mm_audio_name"] = "brief.mp3"
+            st.session_state["mm_audio_name"] = "brief" + audio_extension_for_mime(
+                st.session_state["mm_audio_mime"]
+            )
     up = c2.file_uploader("…or upload a spoken brief", type=["wav", "mp3", "flac"], key="mm_up")
     if up is not None:
         st.session_state["mm_audio"] = up.read()

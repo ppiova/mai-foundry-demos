@@ -12,7 +12,7 @@ import re
 
 import streamlit as st
 
-from mai import MAIClient
+from mai import MAIClient, audio_extension_for_mime
 from mai.fallback import ENTITIES, SAMPLE_TRANSCRIPT_SCRIPT
 
 
@@ -56,12 +56,12 @@ def render(client: MAIClient) -> None:
         if tts.data:
             st.session_state["tr_audio"] = tts.data
             st.session_state["tr_audio_mime"] = tts.meta.get("mime", "audio/mp3")
-            st.session_state["tr_audio_name"] = (
-                "sample.mp3" if "mp3" in st.session_state["tr_audio_mime"] else "sample.wav"
+            st.session_state["tr_audio_name"] = "sample" + audio_extension_for_mime(
+                st.session_state["tr_audio_mime"]
             )
         else:
             st.warning(
-                "No offline TTS available (install pyttsx3) — you can still run the simulated transcription, or upload a WAV/MP3."
+                "No offline TTS audio was produced (install pyttsx3), so upload a non-empty WAV, MP3, or FLAC file to continue."
             )
     up = c2.file_uploader(
         "…or upload audio (WAV/MP3/FLAC)", type=["wav", "mp3", "flac"], key="tr_up"

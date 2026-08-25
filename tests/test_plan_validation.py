@@ -44,6 +44,24 @@ def test_tier1_move_is_rejected():
     assert any("Tier-1" in v for v in result.violations)
 
 
+def test_tier1_decommission_is_rejected():
+    result = validate_plan(_estate(), [], ["payments-core"])
+    assert not result.ok
+    assert any("Tier-1" in v for v in result.violations)
+
+
+def test_active_workload_decommission_is_rejected():
+    result = validate_plan(_estate(), [], ["catalog-svc"])
+    assert not result.ok
+    assert any("active" in v and "idle" in v for v in result.violations)
+
+
+def test_same_region_move_is_rejected():
+    result = validate_plan(_estate(), [{"app": "order-api", "target_region": "eastus"}], [])
+    assert not result.ok
+    assert any("same-region" in v for v in result.violations)
+
+
 def test_unknown_app_and_region_are_rejected():
     estate = _estate()
     result = validate_plan(
@@ -96,11 +114,37 @@ def test_cumulative_capacity_breach_is_caught():
 
 def test_dangling_dependency_is_caught():
     estate = _estate()
-    # ledger-db is Tier-1, so decommission a dependency target that others rely on.
+    # Isolate the dependency check from the separate idle-candidate guard.
+    estate.apps["catalog-svc"]["idle_candidate"] = True
     dependents = [n for n, a in estate.apps.items() if "catalog-svc" in a.get("dependencies", [])]
     assert dependents, "fixture should have apps depending on catalog-svc"
     result = validate_plan(estate, [], ["catalog-svc"])
     assert any("depends on decommissioned" in v for v in result.violations)
+
+
+def test_risks_require_a_list_of_nonempty_strings():
+    estate = _estate()
+    plan = fallback_plan(estate).proposal
+    moves, decommissions = plan.validation_inputs()
+
+    string_result = validate_plan(estate, moves, decommissions, risks="single risk")
+    assert not string_result.ok
+    assert string_result.risks == ()
+    assert any("'risks' must be a list" in v for v in string_result.violations)
+
+    entries_result = validate_plan(estate, moves, decommissions, risks=["", 4, " valid "])
+    assert not entries_result.ok
+    assert entries_result.risks == ("valid",)
+    assert sum("non-empty strings" in v for v in entries_result.violations) == 2
+
+
+def test_valid_risks_are_normalized_without_character_iteration():
+    estate = _estate()
+    plan = fallback_plan(estate).proposal
+    moves, decommissions = plan.validation_inputs()
+    result = validate_plan(estate, moves, decommissions, risks=["  sequence carefully  "])
+    assert result.ok, result.violations
+    assert result.risks == ("sequence carefully",)
 
 
 def test_savings_shortfall_is_reported():

@@ -10,8 +10,8 @@ preview. Preview contracts and availability can change.
 
 This 2026-08-25 hardening pass verified the contract from official documentation and
 offline tests. It did **not** call live Azure endpoints. Empirical notes below are from
-an earlier authorized live check on 2026-08-24 and are explicitly distinguished from
-the documented contract.
+the original authorized AI CoE live validation on 2026-08-13 and are explicitly
+distinguished from the documentation-only review.
 
 ---
 
@@ -30,7 +30,7 @@ the documented contract.
   `tool_choice` or `temperature` fields.
 - **Context:** 256K tokens.
 
-### Parameter contract — verified empirically (2026-08-24)
+### Parameter contract — verified empirically (2026-08-13)
 
 Each row was sent against a live `MAI-Thinking-1` deployment:
 
@@ -114,7 +114,7 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/us
       }
     }
     ```
-  - `phraseList` (up to ~200 phrases) and `transcribeStyle` are **only** in `mai-transcribe-1.5`.
+  - `phraseList` provides entity biasing in `mai-transcribe-1.5`.
   - `transcribeStyle`: defaults to readability-optimized; `"verbatim"` preserves filler
     words and disfluencies.
   - Omit `locales` → automatic multilingual mode.

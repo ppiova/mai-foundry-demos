@@ -6,19 +6,21 @@ about the live endpoints. Run this before a demo, or from the manual
 
     MAI_EXECUTION_MODE=strict python scripts/live_smoke.py
 
-Each check is deliberately cheap (short prompts, 768x768 image). Exits non-zero if
-any configured service fails or silently degrades to fallback.
+Each check is deliberately cheap (short prompts, 768x768 image). By default all
+four services must be configured and pass. Use ``--allow-partial`` only to validate
+an intentionally configured subset.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mai import MAIClient  # noqa: E402
+from mai import MAIClient, audio_extension_for_mime  # noqa: E402
 from mai.fallback import ENTITIES  # noqa: E402
 
 TOOLS = [
@@ -37,13 +39,29 @@ TOOLS = [
 ]
 
 
-def main() -> int:
-    client = MAIClient()
+def missing_services(cfg) -> list[str]:
+    readiness = {
+        "Thinking-1": cfg.foundry_ready,
+        "Image": cfg.image_ready,
+        "Voice-2": cfg.speech_ready,
+        "Transcribe-1.5": cfg.transcribe_ready,
+    }
+    return [name for name, ready in readiness.items() if not ready]
+
+
+def main(client: MAIClient | None = None, allow_partial: bool = False) -> int:
+    client = client or MAIClient()
     cfg = client.cfg
     mode = "strict" if cfg.strict else "demo"
     print(f"MAI live smoke test (execution mode: {mode})")
     if not cfg.strict:
         print("  note: in demo mode a failure degrades to fallback and is reported, not raised.")
+
+    missing = missing_services(cfg)
+    if missing and not allow_partial:
+        print(f"FAILED: full validation requires configuration for {', '.join(missing)}")
+        print("Use --allow-partial only when intentionally validating a configured subset.")
+        return 1
 
     results: list[tuple[str, bool, str]] = []
 
@@ -56,7 +74,7 @@ def main() -> int:
         try:
             resp = client.chat_completion(
                 [{"role": "user", "content": "Reply with exactly: OK"}],
-                max_completion_tokens=200,
+                max_completion_tokens=4096,
             )
             content = (resp["choices"][0]["message"].get("content") or "").strip()
             record("Thinking-1 chat", bool(content), f"-> {content[:40]!r}")
@@ -68,6 +86,8 @@ def main() -> int:
             for kind, val in client.chat_completion_stream(
                 [{"role": "user", "content": "Use the tool for eastus."}],
                 tools=TOOLS,
+                # This budget includes hidden reasoning and visible output.
+                max_completion_tokens=4096,
                 reasoning_display="encrypted",
             ):
                 if kind == "message":
@@ -92,9 +112,11 @@ def main() -> int:
 
     # ── Voice + Transcribe: synthesize a phrase, then read it back ─────────────
     audio = None
+    audio_mime = None
     if cfg.speech_ready:
         tts = client.synthesize("Live smoke test for MAI Voice.", voice="en-US-Ethan:MAI-Voice-2")
         audio = tts.data
+        audio_mime = tts.meta.get("mime")
         record(
             "Voice-2 synthesis",
             tts.is_live and bool(tts.data),
@@ -104,7 +126,13 @@ def main() -> int:
         print("  [SKIP] Voice-2 (no MAI_SPEECH_KEY/REGION configured)")
 
     if cfg.transcribe_ready and audio:
-        tr = client.transcribe(audio, filename="smoke.mp3", phrases=ENTITIES, locales=["en"])
+        tr = client.transcribe(
+            audio,
+            filename="smoke" + audio_extension_for_mime(audio_mime),
+            mime=audio_mime,
+            phrases=ENTITIES,
+            locales=["en"],
+        )
         record("Transcribe-1.5", tr.is_live and bool(tr.data), f"-> {tr.source}, {tr.data[:48]!r}")
     elif cfg.transcribe_ready:
         print("  [SKIP] Transcribe-1.5 (no audio produced to transcribe)")
@@ -124,5 +152,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Validate live MAI service configuration.")
+    parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Validate only configured services instead of requiring all four.",
+    )
+    args = parser.parse_args()
     os.environ.setdefault("MAI_EXECUTION_MODE", "strict")
-    raise SystemExit(main())
+    raise SystemExit(main(allow_partial=args.allow_partial))

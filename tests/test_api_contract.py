@@ -161,6 +161,15 @@ def test_stream_still_handles_indexed_openai_fragments(monkeypatch):
     assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {"x": 1}
 
 
+def test_stream_does_not_invent_a_missing_tool_call_id(monkeypatch):
+    lines = _sse(
+        {"choices": [{"delta": {"tool_calls": [{"function": {"name": "f", "arguments": "{}"}}]}}]}
+    )
+    events = _run_stream(monkeypatch, lines)
+    message = next(v for k, v in events if k == "message")
+    assert message["tool_calls"][0]["id"] is None
+
+
 def test_stream_raises_on_mid_stream_error_after_partial_content(monkeypatch):
     """A safety block can follow partial text; that must not look like success."""
     lines = _sse(

@@ -339,6 +339,10 @@ def validate_plan(
             violations.append(f"'{name}' appears more than once in the plan.")
             continue
         seen.add(name)
+        if not isinstance(target, str):
+            # `x in dict` hashes x, so a dict/list target would raise TypeError.
+            violations.append(f"Move for '{name}' has an invalid 'target_region': {target!r}.")
+            continue
         if target not in estate.regions:
             violations.append(f"Unknown target region '{target}' for '{name}'.")
             continue
@@ -510,8 +514,11 @@ def _finish_live(
     proposal = extract_structured_plan(answer)
     validation = None
     if proposal:
+        # Use a default only when the key is absent: `or []` would normalise a
+        # malformed-but-falsy value ({}, null, "") into an empty list and slip it
+        # past the shape checks in validate_plan().
         validation = validate_plan(
-            estate, proposal.get("moves") or [], proposal.get("decommissions") or []
+            estate, proposal.get("moves", []), proposal.get("decommissions", [])
         )
     return AgentRun(
         "live",
@@ -726,8 +733,13 @@ def render(client: MAIClient) -> None:
             c3.metric("Decommissioned", v.decommissioned)
             c4.metric("Regions over ceiling", v.over_ceiling())
             if v.ok:
+                origin = (
+                    "Model proposal received"
+                    if run.source == "live"
+                    else "Offline planner proposal"
+                )
                 st.success(
-                    "Model proposal received · every hard constraint re-checked in code · numbers above are recomputed, not quoted."
+                    f"{origin} · every hard constraint re-checked in code · numbers above are recomputed, not quoted."
                 )
             else:
                 st.error("The proposal failed deterministic validation:")

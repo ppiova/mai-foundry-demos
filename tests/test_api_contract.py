@@ -221,18 +221,30 @@ def test_demo_mode_degrades_to_fallback(monkeypatch):
     assert "service exploded" in (result.error or "")
 
 
-def test_strict_mode_raises_with_the_original_frame(monkeypatch):
-    """Strict mode must surface the real failure, traceback intact."""
+def test_strict_mode_raises_with_a_clean_traceback(monkeypatch):
+    """Strict mode surfaces the real failure without a helper detour.
+
+    Asserting only that the failing frame survives would not protect this: the
+    previous ``_degrade()`` helper preserved it too. What the bare ``raise``
+    buys is the absence of an extra hop through the helper, so the traceback
+    reads caller -> requests.post -> boom and nothing else.
+    """
     import traceback
 
     def boom(*a, **kw):
         raise RuntimeError("service exploded")
 
     monkeypatch.setattr("mai.client.requests.post", boom)
-    with pytest.raises(RuntimeError, match="service exploded"):
-        try:
-            _speech_client(strict=True).synthesize("hello")
-        except RuntimeError as exc:
-            # The frame that actually failed must still be in the traceback.
-            assert "in boom" in "".join(traceback.format_tb(exc.__traceback__))
-            raise
+
+    try:
+        _speech_client(strict=True).synthesize("hello")
+    except RuntimeError as exc:
+        assert "service exploded" in str(exc)
+        names = [f.name for f in traceback.extract_tb(exc.__traceback__)]
+        assert "boom" in names, names
+        assert "_degrade" not in names, f"strict re-raise detoured through a helper: {names}"
+        # synthesize appears once (the raise site), not twice as it would when an
+        # inner helper re-raises back out through the caller.
+        assert names.count("synthesize") == 1, names
+    else:
+        raise AssertionError("strict mode should have raised instead of degrading")

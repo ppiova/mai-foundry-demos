@@ -202,3 +202,51 @@ def test_validation_carries_the_estate_ceiling():
     estate = _estate()
     result = validate_plan(estate, [], [])
     assert result.ceiling == estate.ceiling
+
+
+def test_non_string_target_region_is_reported_not_raised():
+    """`x in dict` hashes x, so a dict/list target would raise TypeError."""
+    estate = _estate()
+    result = validate_plan(
+        estate,
+        [
+            {"app": "order-api", "target_region": {}},
+            {"app": "search-index", "target_region": ["southindia"]},
+            {"app": "inventory-sync", "target_region": None},
+        ],
+        [],
+    )
+    assert not result.ok
+    assert sum("invalid 'target_region'" in v for v in result.violations) == 3
+
+
+def test_falsy_malformed_plan_is_not_normalised_away():
+    """A live proposal with `decommissions: {}` must fail the shape check.
+
+    Reading it with `or []` would turn the malformed value into an empty list and
+    let the plan report ok, bypassing the guard entirely.
+    """
+    from demos.thinking_agent import _finish_live
+
+    estate = _estate()
+    answer = (
+        "Plan.\n\n```json\n"
+        '{"moves": [{"app": "catalog-svc", "target_region": "southindia"}], '
+        '"decommissions": {}}'
+        "\n```\n"
+    )
+    run = _finish_live(estate, answer, [], 0.0, {})
+    assert run.validation is not None
+    assert not run.validation.ok
+    assert any("'decommissions' must be a list" in v for v in run.validation.violations)
+
+
+def test_absent_keys_still_default_cleanly():
+    """Omitting a key is legitimate — only present-but-malformed values must fail."""
+    from demos.thinking_agent import _finish_live
+
+    estate = _estate()
+    answer = '```json\n{"moves": [{"app": "catalog-svc", "target_region": "southindia"}]}\n```'
+    run = _finish_live(estate, answer, [], 0.0, {})
+    assert run.validation is not None
+    assert not any("must be a list" in v for v in run.validation.violations)

@@ -1,25 +1,27 @@
-# MAI Examples
+# mai-foundry-demos
 
 A compact Streamlit app that showcases the Microsoft MAI multimodal stack through short,
 focused demos designed for a 30–45 minute presentation.
 
-Each demo proves one clear claim about the MAI stack and can run in one of two modes:
+Each demo illustrates one capability and can run in one of two modes:
 
 - **🟢 LIVE** — uses real MAI APIs when credentials are present in `.env`
 - **🟡 FALLBACK** — uses deterministic offline stand-ins so you can rehearse without
   keys and so a live hiccup on stage degrades gracefully
 
-The API surface used here was verified against Microsoft Learn on 2026-08-13. See
+The API surface used here was checked against Microsoft Learn on 2026-08-25. See
 [docs/API_VERIFIED.md](docs/API_VERIFIED.md) for the details.
 
 ## What this repo demonstrates
+
+These are four selected MAI capabilities, not an exhaustive catalog of the MAI family.
 
 The app is organized around four main story beats and a finale:
 
 | Demo | What it shows | Typical setup |
 |---|---|---|
 | 🧠 Thinking · Decision Agent | Tool-using reasoning over a cloud estate and migration constraints | Foundry resource |
-| 🎨 Image · Surgical Edit | Controlled image editing with strong preservation of subject and style | Foundry image resource |
+| 🎨 Image · Surgical Edit | Controlled image editing with preservation-oriented prompts | Foundry image resource |
 | 🎙️ Transcribe · Entity biasing | Domain-aware transcription with phrase biasing and verbatim mode | Speech resource |
 | 🗣️ Voice · Personalities | Expressive TTS with multiple styles and languages | Speech resource |
 | 🚀 Finale · Multimodal | End-to-end flow: speech → reasoning → image → speech | Combination of the above |
@@ -27,6 +29,8 @@ The app is organized around four main story beats and a finale:
 Backup demos are also included for extra flexibility: Voice personalities and faster image generation.
 
 ## Quick start
+
+### Windows PowerShell
 
 ```bash
 # 1. From the project root, create a virtual environment
@@ -46,7 +50,25 @@ copy .env.example .env               # then edit .env
 streamlit run app.py
 ```
 
-With no `.env`, everything runs in **FALLBACK** mode — great for rehearsal.
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python assets/build_assets.py             # optional
+cp .env.example .env                      # optional; then edit .env
+streamlit run app.py
+```
+
+With no `.env`, the default `demo` mode runs in **FALLBACK** mode.
+
+### Execution modes
+
+- `MAI_EXECUTION_MODE=demo` (default) labels and uses deterministic fallback output
+  when credentials are absent or a live call fails.
+- `MAI_EXECUTION_MODE=strict` raises missing-configuration and live API failures;
+  it never silently substitutes mock output. Use strict mode for authorized preflight checks.
 
 ## Going LIVE
 
@@ -65,10 +87,10 @@ Deploy the models in the Foundry portal / Azure CLI first; the `model` field in
 each call is the **deployment name** you assign. `.env` is gitignored — never commit
 real keys.
 
-Prefer infrastructure as code? [`infra/main.bicep`](infra/main.bicep) deploys the
+Prefer infrastructure as code? [`infra/main.bicep`](infra/main.bicep) can deploy the
 whole Foundry resource — `MAI-Thinking-1`, `MAI-Image-2.5`, and `MAI-Image-2.5-Flash` —
-in one `az deployment group create`. Verified end-to-end against a live Azure
-subscription. See [`infra/README.md`](infra/README.md).
+in one `az deployment group create`. See [`infra/README.md`](infra/README.md) and
+confirm current model/region availability in your own subscription before deployment.
 
 ### How the models are called
 
@@ -77,8 +99,7 @@ reached over plain HTTPS:
 
 - **Thinking-1** → `POST {endpoint}/mai/v1/chat/completions` (`api-key` header, SSE
   streaming, `tools` function calling, `max_completion_tokens`, and
-  `reasoning_display` for encrypted reasoning state across tool rounds). The
-  OpenAI-compatible `/openai/v1/` path also works but rejects `reasoning_display`.
+  `reasoning_display` for encrypted reasoning state across tool rounds).
 - **Image-2.5 / Flash** → `POST {endpoint}/mai/v1/images/edits` and `/generations`
   (edits are multipart; responses are base64 PNG).
 - **Transcribe-1.5** → the Speech **LLM Speech API**
@@ -87,26 +108,27 @@ reached over plain HTTPS:
 - **Voice-2** → the Speech **REST TTS** `POST {region}.tts.speech.microsoft.com/cognitiveservices/v1`
   with SSML `mstts:express-as` styles.
 
-Chat, image, and speech can share one resource or live on separate ones — which is why
+Chat, image, and speech can use separate configuration — which is why
 `MAI_FOUNDRY_*`, `MAI_IMAGE_*`, and `MAI_SPEECH_*` are configured independently. This
-matters in practice: **MAI image models are region-limited** (e.g. not available in
-East US 2), so image may need its own resource in a supported region.
+also lets Image use a different resource when required by current regional availability.
 
-All six demos plus the finale were verified end-to-end against a real Foundry
-deployment. Full API details and sources: [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
+This hardening pass used current Microsoft Learn documentation and offline CI only;
+it did **not** call a live Azure endpoint. The repository includes an opt-in strict
+smoke script for authorized live verification. Full API details and sources:
+[`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
 
 ## Notes on the MAI lineup (worth knowing)
 
 A few things that came up while verifying against Microsoft's public docs (all
 captured in [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md)):
 
-- **Transcribe naming.** The public docs list only `mai-transcribe-1.5` and
-  `mai-transcribe-1` (the latter deprecated 2026-08-20). Some early materials
-  referenced "MAI-Transcribe-2"; this project standardizes on **1.5**.
-- **Preview status.** Image / Transcribe / Voice are **public preview**;
-  MAI-Thinking-1 is described as **private preview / "public access coming soon."**
-- **Image-2e is deprecated.** It can no longer be deployed; **`MAI-Image-2.5-Flash`**
-  is its fast / high-volume successor (used here for generation).
+- **Transcribe naming.** The selected demo uses the currently documented
+  `mai-transcribe-1.5` identifier rather than names from older materials.
+- **Preview status.** Microsoft Learn currently labels MAI-Thinking-1 and the selected
+  Image / Transcribe / Voice capabilities as preview. Preview capabilities can change;
+  check the linked documentation before relying on them.
+- **Image deployment names are configurable.** The generation demo defaults to
+  `MAI-Image-2.5-Flash`; check the model catalog before creating a deployment.
 - **Voice styles are voice-dependent.** `mstts:express-as` styles vary by voice — e.g.
   `empathy` exists on `es-ES-Marta` and the multilingual voices, not on the en-US
   voices (which offer `excited`, `hopeful`, `softvoice`, …). The app validates the
@@ -140,6 +162,7 @@ The suite runs fully offline in FALLBACK mode — no credentials, no network:
 ```bash
 pip install ruff pytest
 ruff check .
+ruff format --check .
 pytest
 ```
 

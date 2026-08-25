@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
 import streamlit as st
 
@@ -31,7 +32,29 @@ _BRIEF_SYSTEM = (
 )
 
 
-def generate_brief(client: MAIClient, brief_text: str) -> tuple[dict, str, str | None]:
+@dataclass(frozen=True)
+class Campaign:
+    campaign_name: str
+    tagline: str
+    creative_brief: str
+    hero_image_prompt: str
+    voiceover_script: str
+
+    @classmethod
+    def from_mapping(cls, data: object) -> Campaign:
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected a JSON object, got {type(data).__name__}")
+        missing = [
+            field
+            for field in REQUIRED_CAMPAIGN_FIELDS
+            if not isinstance(data.get(field), str) or not data[field].strip()
+        ]
+        if missing:
+            raise ValueError(f"Campaign JSON missing required field(s): {', '.join(missing)}")
+        return cls(**{field: data[field].strip() for field in REQUIRED_CAMPAIGN_FIELDS})
+
+
+def generate_brief(client: MAIClient, brief_text: str) -> tuple[Campaign, str, str | None]:
     """Return (campaign_dict, source, error)."""
     if client.thinking_ready():
         try:
@@ -40,12 +63,16 @@ def generate_brief(client: MAIClient, brief_text: str) -> tuple[dict, str, str |
                     {"role": "system", "content": _BRIEF_SYSTEM},
                     {"role": "user", "content": brief_text},
                 ],
-                temperature=0.7,
+                max_completion_tokens=2048,
             )
             content = resp["choices"][0]["message"].get("content") or ""
             return _parse_json(content), "live", None
         except Exception as exc:
+            if client.cfg.strict:
+                raise
             return _fallback_brief(brief_text), "fallback", str(exc)
+    if client.cfg.strict:
+        raise RuntimeError("Thinking service is not configured")
     return _fallback_brief(brief_text), "fallback", None
 
 
@@ -58,7 +85,7 @@ REQUIRED_CAMPAIGN_FIELDS = (
 )
 
 
-def _parse_json(text: str) -> dict:
+def _parse_json(text: str) -> Campaign:
     """Parse the campaign JSON and require every field the pipeline depends on.
 
     A partially-filled object would silently produce an empty hero prompt or a
@@ -70,37 +97,32 @@ def _parse_json(text: str) -> dict:
         text = re.sub(r"```(json)?", "", text).strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
     data = json.loads(m.group(0) if m else text)
-    if not isinstance(data, dict):
-        raise ValueError(f"Expected a JSON object, got {type(data).__name__}")
-    missing = [f for f in REQUIRED_CAMPAIGN_FIELDS if not str(data.get(f, "")).strip()]
-    if missing:
-        raise ValueError(f"Campaign JSON missing required field(s): {', '.join(missing)}")
-    return data
+    return Campaign.from_mapping(data)
 
 
-def _fallback_brief(brief_text: str) -> dict:
+def _fallback_brief(brief_text: str) -> Campaign:
     # Pull a rough product phrase from the brief for a data-driven-feeling result.
     m = re.search(r"(?:for a |a )([^.,]+?)(?: targeted| for | aimed|\.|,|$)", brief_text, re.I)
     product = (m.group(1).strip() if m else "new product").rstrip(".")
-    return {
-        "campaign_name": "Carry Forward",
-        "tagline": "Built for the road. Designed for tomorrow.",
-        "creative_brief": (
+    return Campaign(
+        campaign_name="Carry Forward",
+        tagline="Built for the road. Designed for tomorrow.",
+        creative_brief=(
             f"A launch campaign for {product}. Position sustainability and "
             "smart utility as effortless, not preachy. Speak to frequent "
             "business travelers who value design, durability and low footprint."
         ),
-        "hero_image_prompt": (
+        hero_image_prompt=(
             f"Hero product shot of {product}, minimalist studio lighting, "
             "recycled materials visible, airport lounge bokeh background, "
-            "premium eco branding, 16:9 negative space on the right"
+            "premium eco branding, landscape composition, negative space on the right"
         ),
-        "voiceover_script": (
+        voiceover_script=(
             "Meet the backpack that keeps up with you and the planet. "
             "Smart, sustainable, and built for the way you travel. "
             "Carry forward — your journey, reimagined."
         ),
-    }
+    )
 
 
 def _stage(label: str, source: str, elapsed: float, error: str | None = None):
@@ -123,10 +145,12 @@ def render(client: MAIClient) -> None:
         if tts.data:
             st.session_state["mm_audio"] = tts.data
             st.session_state["mm_audio_mime"] = tts.meta.get("mime", "audio/mp3")
+            st.session_state["mm_audio_name"] = "brief.mp3"
     up = c2.file_uploader("…or upload a spoken brief", type=["wav", "mp3", "flac"], key="mm_up")
     if up is not None:
         st.session_state["mm_audio"] = up.read()
         st.session_state["mm_audio_mime"] = up.type or "audio/wav"
+        st.session_state["mm_audio_name"] = up.name
     audio = st.session_state.get("mm_audio")
     if audio:
         st.audio(audio, format=st.session_state.get("mm_audio_mime", "audio/mp3"))
@@ -137,7 +161,13 @@ def render(client: MAIClient) -> None:
         # 1) Speech → text
         st.markdown("### 1 · Speech → text")
         if audio:
-            tr = client.transcribe(audio, phrases=["backpack", "sustainable"], locales=["en"])
+            tr = client.transcribe(
+                audio,
+                filename=st.session_state.get("mm_audio_name", "brief.wav"),
+                mime=st.session_state.get("mm_audio_mime"),
+                phrases=["backpack", "sustainable"],
+                locales=["en"],
+            )
             _stage("MAI-Transcribe-1.5", tr.source, tr.elapsed, tr.error)
             total += tr.elapsed
             brief_used = tr.data
@@ -155,22 +185,20 @@ def render(client: MAIClient) -> None:
         el = time.time() - t0
         _stage("MAI-Thinking-1", src, el, err)
         total += el
-        st.markdown(f"**{campaign.get('campaign_name', '')}** — *{campaign.get('tagline', '')}*")
-        st.write(campaign.get("creative_brief", ""))
+        st.markdown(f"**{campaign.campaign_name}** — *{campaign.tagline}*")
+        st.write(campaign.creative_brief)
 
         # 3) Image → hero
         st.markdown("### 3 · Image → hero visual")
-        img = client.generate_image(
-            campaign.get("hero_image_prompt", brief_used), width=1024, height=768
-        )
+        img = client.generate_image(campaign.hero_image_prompt, width=1024, height=768)
         _stage(img.meta.get("model", "MAI-Image"), img.source, img.elapsed, img.error)
         total += img.elapsed
-        st.image(img.data, width="stretch", caption=campaign.get("hero_image_prompt", ""))
+        st.image(img.data, width="stretch", caption=campaign.hero_image_prompt)
 
         # 4) Speech → voice-over
         st.markdown("### 4 · Voice-over")
         vo = client.synthesize(
-            campaign.get("voiceover_script", ""),
+            campaign.voiceover_script,
             voice="en-US-Harper:MAI-Voice-2",
             style="excited",
             styledegree=1.3,
@@ -179,6 +207,6 @@ def render(client: MAIClient) -> None:
         total += vo.elapsed
         if vo.data:
             st.audio(vo.data, format=vo.meta.get("mime", "audio/mp3"))
-        st.write(campaign.get("voiceover_script", ""))
+        st.write(campaign.voiceover_script)
 
         st.success(f"End-to-end multimodal pipeline complete · total {total:.1f}s")

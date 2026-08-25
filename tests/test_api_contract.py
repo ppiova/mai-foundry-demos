@@ -37,31 +37,26 @@ def test_chat_url_uses_native_mai_path():
 
 
 def test_payload_uses_max_completion_tokens_not_max_tokens():
-    payload = _client()._chat_payload(
-        [{"role": "user", "content": "hi"}], None, None, None, 64, None
-    )
+    payload = _client()._chat_payload([{"role": "user", "content": "hi"}], None, 64, None)
     assert payload["max_completion_tokens"] == 64
     assert "max_tokens" not in payload
 
 
 def test_payload_omits_unset_optionals():
-    payload = _client()._chat_payload(
-        [{"role": "user", "content": "hi"}], None, None, None, None, None
-    )
+    payload = _client()._chat_payload([{"role": "user", "content": "hi"}], None, None, None)
     assert set(payload) == {"model", "messages"}
 
 
-def test_tool_choice_only_sent_alongside_tools():
+def test_payload_never_sends_undocumented_sampling_or_tool_choice_fields():
     tools = [{"type": "function", "function": {"name": "f", "parameters": {}}}]
-    cl = _client()
-    assert "tool_choice" not in cl._chat_payload([], tools, None, None, None, None)
-    assert cl._chat_payload([], tools, "auto", None, None, None)["tool_choice"] == "auto"
-    # tool_choice without tools is meaningless and must not be sent
-    assert "tool_choice" not in cl._chat_payload([], None, "auto", None, None, None)
+    payload = _client()._chat_payload([], tools, None, None)
+    assert payload["tools"] == tools
+    assert "tool_choice" not in payload
+    assert "temperature" not in payload
 
 
 def test_reasoning_display_is_forwarded():
-    payload = _client()._chat_payload([], None, None, None, None, "encrypted")
+    payload = _client()._chat_payload([], None, None, "encrypted")
     assert payload["reasoning_display"] == "encrypted"
 
 
@@ -176,6 +171,21 @@ def test_stream_raises_on_mid_stream_error_after_partial_content(monkeypatch):
         _run_stream(monkeypatch, lines)
     assert excinfo.value.error_type == "SafetyBlockedError"
     assert "req-1" in str(excinfo.value)
+
+
+def test_stream_raises_on_named_sse_error_event(monkeypatch):
+    lines = ["event: error", 'data: {"code":"SafetyBlockedError","message":"blocked"}']
+    with pytest.raises(MAIStreamError, match="SafetyBlockedError"):
+        _run_stream(monkeypatch, lines)
+
+
+def test_stream_raises_on_safety_finish_reason(monkeypatch):
+    lines = _sse(
+        {"choices": [{"delta": {"content": "partial"}}]},
+        {"choices": [{"delta": {}, "finish_reason": "content_filter"}]},
+    )
+    with pytest.raises(MAIStreamError, match="SafetyBlockedError"):
+        _run_stream(monkeypatch, lines)
 
 
 def test_stream_captures_reasoning_and_stats(monkeypatch):

@@ -1,8 +1,8 @@
 # Infrastructure as code
 
 `main.bicep` deploys one **Microsoft Foundry** resource (`Microsoft.CognitiveServices/accounts`,
-kind `AIServices`) with `MAI-Thinking-1`, `MAI-Image-2.5`, and `MAI-Image-2.5-Flash`
-deployed on it — the exact setup this repo's demos run against. Verified against
+kind `AIServices`) with configurable `MAI-Thinking-1`, `MAI-Image-2.5`, and
+`MAI-Image-2.5-Flash` deployments. The template was checked against
 Microsoft Learn's Bicep reference (api-version `2025-09-01`) and the official
 [Azure Verified Module for Cognitive Services accounts](https://github.com/Azure/bicep-registry-modules/tree/main/avm/res/cognitive-services/account).
 
@@ -13,7 +13,7 @@ calls them through this same account's Speech endpoints. See
 ## Deploy
 
 ```bash
-# 1. Create (or pick) a resource group in a region that supports MAI image models.
+# 1. Create (or pick) a resource group after checking current model availability.
 az group create --name rg-mai-examples --location eastus
 
 # 2. Edit main.bicepparam — accountName must be globally unique.
@@ -25,22 +25,14 @@ az deployment group create \
   --parameters main.bicepparam
 ```
 
-Deployment takes a couple of minutes — each model deployment is created in
-sequence (see the note in `main.bicep` on why they're chained with `dependsOn`
-instead of created in parallel).
+Each model deployment is created in sequence; actual deployment duration varies.
 
 ## Region constraints
 
-MAI image models (`MAI-Image-2.5`, `MAI-Image-2.5-Flash`) are only available in:
-**East US, West US, West Central US, West Europe, Sweden Central, South India,
-UAE North.** `location` is restricted to that list by default. If you only need
-`MAI-Thinking-1`, set `deployImageModels = false` and you can deploy to any
-Foundry-supported region (remove the `@allowed` restriction on `location` in
-that case).
-
-This is a real constraint we hit while building this repo: our first Foundry
-resource was in **East US 2**, which doesn't offer MAI image models at all —
-hence deploying a second, dedicated resource in East US.
+Model and deployment availability changes over time and can differ by subscription.
+Check the current Microsoft Foundry model catalog before setting `location`. If you
+only need Thinking, set `deployImageModels = false`; the app can independently point
+`MAI_IMAGE_*` at another authorized resource.
 
 ## Quota
 

@@ -26,7 +26,7 @@ DEFAULT_PROMPT = (
 )
 
 HERO_PROMPT = (
-    "Reframe this image as a 16:9 presentation hero shot for a premium marketing "
+    "Reframe this image as a wide presentation hero shot for a premium marketing "
     "campaign. Preserve the product and person, keep the same camera angle and "
     "lighting, and create clean negative space on the right for a headline and CTA. "
     "Use a polished, high-end commercial style with balanced composition, subtle "

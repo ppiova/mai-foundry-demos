@@ -8,8 +8,12 @@ region once combined.
 
 from __future__ import annotations
 
+import json
+
 from demos.thinking_agent import (
     CloudEstate,
+    MigrationPlan,
+    _finish_live,
     extract_structured_plan,
     fallback_plan,
     validate_plan,
@@ -132,6 +136,22 @@ def test_valid_plan_reports_recomputed_numbers():
     assert result.over_ceiling(estate.ceiling) == 0
 
 
+def test_live_markdown_is_rendered_from_typed_validated_data():
+    estate = _estate()
+    offline = fallback_plan(estate)
+    moves, decommissions = offline.proposal.validation_inputs()
+    answer = (
+        "Claimed total: $1/month and 99.9% saved.\n```json\n"
+        + json.dumps({"moves": moves, "decommissions": decommissions})
+        + "\n```"
+    )
+    run = _finish_live(estate, answer, [], 0.0, {})
+    assert run.source == "live"
+    assert isinstance(run.proposal, MigrationPlan)
+    assert "$1/month" not in run.plan_markdown
+    assert f"${run.validation.new_cost:,.0f}/month" in run.plan_markdown
+
+
 # ── structured-plan extraction ──────────────────────────────────────────────────
 def test_extract_structured_plan_reads_trailing_json_block():
     text = """Here is the plan.
@@ -236,9 +256,10 @@ def test_falsy_malformed_plan_is_not_normalised_away():
         "\n```\n"
     )
     run = _finish_live(estate, answer, [], 0.0, {})
-    assert run.validation is not None
-    assert not run.validation.ok
-    assert any("'decommissions' must be a list" in v for v in run.validation.violations)
+    assert run.source == "fallback"
+    assert run.validation is not None and run.validation.ok
+    assert run.rejected_validation is not None
+    assert any("'decommissions' must be a list" in v for v in run.rejected_validation.violations)
 
 
 def test_absent_keys_still_default_cleanly():

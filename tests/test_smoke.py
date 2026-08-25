@@ -90,8 +90,8 @@ def test_image_fallbacks_return_png(client):
 
 
 def test_transcribe_entity_biasing(client):
-    baseline = client.transcribe(b"", phrases=None)
-    biased = client.transcribe(b"", phrases=ENTITIES)
+    baseline = client.transcribe(b"RIFF-offline-test", phrases=None)
+    biased = client.transcribe(b"RIFF-offline-test", phrases=ENTITIES)
     assert baseline.data != biased.data
     assert "Fabrikam XQ-17" in biased.data
     assert "Fabrikam XQ-17" not in baseline.data
@@ -110,6 +110,7 @@ def test_finale_brief_fallback(client):
 
     brief, source, _ = generate_brief(client, "Launch a smart backpack.")
     assert source == "fallback"
-    assert all(
-        k in brief for k in ("campaign_name", "tagline", "hero_image_prompt", "voiceover_script")
-    )
+    assert brief.campaign_name
+    assert brief.tagline
+    assert brief.hero_image_prompt
+    assert brief.voiceover_script

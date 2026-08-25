@@ -76,18 +76,28 @@ def render(client: MAIClient) -> None:
         st.audio(audio, format=st.session_state.get("tr_audio_mime", "audio/mp3"))
 
     if st.button("▶ Transcribe: baseline vs phraseList", type="primary", key="tr_run"):
-        if live and not audio:
+        if not audio:
             st.error(
-                "Live transcription needs audio. Click **Generate sample audio** or upload a file."
+                "Transcription needs non-empty audio. Click **Generate sample audio** or upload a file."
             )
             return
         name = st.session_state.get("tr_audio_name", "audio.wav")
         with st.spinner("Transcribing twice…"):
             base = client.transcribe(
-                audio or b"", filename=name, phrases=None, verbatim=verbatim, locales=["en"]
+                audio or b"",
+                filename=name,
+                mime=st.session_state.get("tr_audio_mime"),
+                phrases=None,
+                verbatim=verbatim,
+                locales=["en"],
             )
             biased = client.transcribe(
-                audio or b"", filename=name, phrases=ENTITIES, verbatim=verbatim, locales=["en"]
+                audio or b"",
+                filename=name,
+                mime=st.session_state.get("tr_audio_mime"),
+                phrases=ENTITIES,
+                verbatim=verbatim,
+                locales=["en"],
             )
         st.markdown(
             f"**{base.badge}**  ·  baseline {base.elapsed:.1f}s · biased {biased.elapsed:.1f}s"

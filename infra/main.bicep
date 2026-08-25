@@ -13,19 +13,10 @@
 @description('Name of the Foundry (Cognitive Services / AIServices) account. Also used as the custom subdomain, so it must be globally unique.')
 param accountName string
 
-@description('Deploy MAI-Image-2.5 and MAI-Image-2.5-Flash on this account. MAI image models are only available in a subset of regions (see `location`) — set this to false to deploy Thinking-1 only in a region without image support.')
+@description('Deploy MAI-Image-2.5 and MAI-Image-2.5-Flash on this account. Confirm current model availability for `location`; set this to false for a Thinking-only deployment.')
 param deployImageModels bool = true
 
-@description('Azure region for the account. The default allowed list is the set of regions that currently support MAI image models; if deployImageModels=false you can widen this to any Foundry region.')
-@allowed([
-  'eastus'
-  'westus'
-  'westcentralus'
-  'westeurope'
-  'swedencentral'
-  'southindia'
-  'uaenorth'
-])
+@description('Azure region for the account. Confirm current model and deployment availability in Microsoft Foundry before deployment.')
 param location string = 'eastus'
 
 @description('Global Standard TPM/capacity for the MAI-Thinking-1 deployment.')
@@ -38,7 +29,7 @@ param imageCapacity int = 1
 param tags object = {}
 
 // Model versions verified against a real deployment in this repo's Foundry
-// resource on 2026-08-13 (see docs/API_VERIFIED.md). Foundry defaults to the
+// resource during an earlier authorized live check (see docs/API_VERIFIED.md). Foundry defaults to the
 // latest version when omitted, but pinning keeps this template reproducible.
 var thinkingModelVersion = '2026-06-01'
 var imageModelVersion = '2026-06-02'

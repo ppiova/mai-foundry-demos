@@ -1,12 +1,17 @@
 # MAI API — verified surface
 
-> Verified against Microsoft's public documentation on **2026-08-13**.
+> Last verified against Microsoft Learn on **2026-08-25**.
 > This file is the source of truth for the code in `mai/`. If Microsoft changes
 > something, update here first, then `mai/config.py`.
 
-All referenced models exist and are documented. Three are in **public preview**
-(Image, Transcribe, Voice); **MAI-Thinking-1** is described as **private preview /
-"public access coming soon"** in developer coverage.
+The selected capabilities are a subset of the MAI family. Microsoft Learn currently
+labels MAI-Thinking-1 and the selected Image, Transcribe, and Voice capabilities as
+preview. Preview contracts and availability can change.
+
+This 2026-08-25 hardening pass verified the contract from official documentation and
+offline tests. It did **not** call live Azure endpoints. Empirical notes below are from
+an earlier authorized live check on 2026-08-24 and are explicitly distinguished from
+the documented contract.
 
 ---
 
@@ -15,17 +20,14 @@ All referenced models exist and are documented. Three are in **public preview**
 - **Endpoint (used by this repo):** `POST {FOUNDRY_ENDPOINT}/mai/v1/chat/completions`
   - `FOUNDRY_ENDPOINT` = `https://<your-resource>.services.ai.azure.com`
   - No `api-version` query parameter is required.
-  - The OpenAI-compatible `POST {FOUNDRY_ENDPOINT}/openai/v1/chat/completions` also
-    answers, but **rejects `reasoning_display`** with
-    `unrecognized_request_argument`. We use the native `/mai/v1/` path so the agent
-    can carry reasoning state across tool rounds.
+  - This repository uses the native path documented for MAI-Thinking-1.
 - **Auth:** header `api-key: <KEY>` (or `Authorization: Bearer <Entra token>`).
-- **Body:** `model`, `messages`, `tools`, `max_completion_tokens`, `stream`,
-  `reasoning_display`.
+- **Documented body fields used here:** `model`, `messages`, `tools`,
+  `max_completion_tokens`, `stream`, `reasoning_display`.
   - `model` = the **deployment name** (typically `MAI-Thinking-1`).
 - **Function calling:** `tools=[{"type":"function","function":{...}}]`. Response in
-  `choices[0].message.tool_calls[]`. `tool_choice` is accepted but optional — this
-  repo only sends it alongside `tools`.
+  `choices[0].message.tool_calls[]`. The current app does not send undocumented
+  `tool_choice` or `temperature` fields.
 - **Context:** 256K tokens.
 
 ### Parameter contract — verified empirically (2026-08-24)
@@ -36,16 +38,16 @@ Each row was sent against a live `MAI-Thinking-1` deployment:
 | --- | --- |
 | `max_tokens` | ❌ **HTTP 400** — `` `max_tokens` is not supported; use `max_completion_tokens` instead `` (on **both** paths) |
 | `max_completion_tokens` | ✅ 200 |
-| `temperature` | ✅ 200 (accepted, though absent from the documented parameter list — sent only when a caller explicitly asks) |
+| `temperature` | Accepted by that deployment, but absent from the current documented parameter list; **not sent by this repo** |
 | `reasoning_display: "encrypted"` | ✅ 200 on `/mai/v1/` · ❌ 400 `unrecognized_request_argument` on `/openai/v1/` |
-| `tools` without `tool_choice` | ✅ 200, still returns `tool_calls` |
+| `tools` without `tool_choice` | ✅ 200, returned `tool_calls` |
 
 ### Reasoning state across tool rounds
 
 With `reasoning_display: "encrypted"`, the assistant message carries an opaque
-`reasoning` object (`encrypted_content`, `content`, `summary`) — in streaming it
-arrives on `delta.reasoning`. Append that assistant message back **verbatim** on the
-next round so the model keeps its reasoning state; never render or log the blob.
+`reasoning` envelope; in streaming it arrives on `delta.reasoning`. Append that
+assistant message back **verbatim** on the next round so the model keeps its state;
+never inspect, render, or log the envelope.
 
 ### Streaming quirks
 
@@ -64,8 +66,8 @@ List a project's real deployments with
 `GET {project_endpoint}/deployments?api-version=2025-05-01`.
 
 Sources:
-- https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle
-- https://microsoft.ai/news/introducing-mai-thinking-1/
+- https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai-thinking
+- https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure
 
 ---
 
@@ -85,11 +87,10 @@ Sources:
   - `MAI-Image-2.5-Pro`   (gen + edit)  version `2026-06-19`
   - `MAI-Image-2.5-Flash` (gen + edit)  version `2026-06-02`  ← fast / high-volume
   - `MAI-Image-2.5`       (gen + edit)  version `2026-06-02`
-  - `MAI-Image-2e`        (gen only)    version `2026-04-09`  ⚠️ **deprecating — can no longer be deployed** (use `MAI-Image-2.5-Flash` instead)
-  - `MAI-Image-2`         (gen only)    version `2026-02-20`
-- **Notes:** image-to-image editing is supported only by the 2.5 family. MAI image
-  models are **region-limited** (available in West Central US, East US, West US, West
-  Europe, Sweden Central, South India, UAE North — notably **not** East US 2).
+  - Additional models may appear in the catalog; check the linked page for current
+    lifecycle and deployment availability.
+- **Notes:** image-to-image editing is supported by the 2.5 models documented on the
+  linked page. Region and deployment availability must be checked at deployment time.
 
 Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai-image
 
@@ -118,15 +119,15 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/us
     words and disfluencies.
   - Omit `locales` → automatic multilingual mode.
 - **Not supported:** diarization, prompt-tuning.
-- **Models:** `mai-transcribe-1.5` (current), `mai-transcribe-1` (deprecated 2026-08-20).
+- **Model used here:** `mai-transcribe-1.5`. Check the linked page for current model
+  lifecycle information.
 - **Response:** fast-transcription format; text usually appears in `combinedPhrases[].text`
   (the code parses several shapes defensively).
 
 Source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/mai-transcribe
 
-> ⚠️ Naming note: some early materials referenced `MAI-Transcribe-2`. The current
-> public docs list only `mai-transcribe-1.5` and `mai-transcribe-1` — this project
-> standardizes on **1.5**.
+> Naming note: this project follows the currently documented `mai-transcribe-1.5`
+> identifier.
 
 ---
 
@@ -144,7 +145,7 @@ Source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/mai-t
   - `en-US-Harper:MAI-Voice-2` (F), `en-US-Ethan:MAI-Voice-2` (M), `en-US-Olivia:MAI-Voice-2` (F)
   - `es-MX-Valeria:MAI-Voice-2` (F), `es-MX-Alejo:MAI-Voice-2` (M)
   - `es-ES-Marta:MAI-Voice-2` (F)
-  - `...:MAI-Voice-2-Flash` variants for low latency.
+  - `...:MAI-Voice-2-Flash` variants are also documented on the linked page.
 - **Supported styles depend on the voice** (important for the personalities demo):
   - en-US voices (Harper/Ethan/Olivia): `angry, confused, determined, excited, happy,
     hopeful, joyful, regretful, relieved, sad, shouting, softvoice, whispering, ...`

@@ -234,6 +234,34 @@ SYSTEM_PROMPT = (
 )
 
 
+@dataclass(frozen=True)
+class PlanMove:
+    app: str
+    target_region: str
+
+
+@dataclass(frozen=True)
+class MigrationPlan:
+    moves: tuple[PlanMove, ...]
+    decommissions: tuple[str, ...]
+    risks: tuple[str, ...] = ()
+
+    @classmethod
+    def from_validated_mapping(cls, proposal: dict) -> MigrationPlan:
+        """Create typed data only after ``validate_plan`` accepts the raw mapping."""
+        return cls(
+            moves=tuple(PlanMove(item["app"], item["target_region"]) for item in proposal["moves"]),
+            decommissions=tuple(proposal["decommissions"]),
+            risks=tuple(item for item in proposal.get("risks", []) if isinstance(item, str)),
+        )
+
+    def validation_inputs(self) -> tuple[list[dict], list[str]]:
+        return (
+            [{"app": move.app, "target_region": move.target_region} for move in self.moves],
+            list(self.decommissions),
+        )
+
+
 @dataclass
 class AgentRun:
     source: str
@@ -242,7 +270,8 @@ class AgentRun:
     error: str | None = None
     elapsed: float = 0.0
     validation: PlanValidation | None = None  # deterministic check of the proposal
-    proposal: dict | None = None  # structured plan the model returned, if any
+    rejected_validation: PlanValidation | None = None  # unsafe model proposal, if any
+    proposal: MigrationPlan | dict | None = None
     stats: dict = field(default_factory=dict)  # usage / finish_reason / request_id
 
 
@@ -428,6 +457,40 @@ def _tool_summary(fn: str, result: dict) -> str:
     return ""
 
 
+_KNOWN_TOOLS = {item["function"]["name"] for item in TOOLS_SCHEMA}
+
+
+def execute_tool_call(estate: CloudEstate, tool_call: dict) -> tuple[str, dict, dict]:
+    """Validate an untrusted model tool call before dispatching any local function."""
+    function = tool_call.get("function") if isinstance(tool_call, dict) else None
+    if not isinstance(function, dict):
+        return "invalid_tool_call", {}, {"error": "Malformed tool call: missing function."}
+    name = function.get("name")
+    if not isinstance(name, str) or name not in _KNOWN_TOOLS:
+        label = name if isinstance(name, str) and name else "invalid_tool_call"
+        return label, {}, {"error": f"Unknown tool '{label}' was not executed."}
+    raw_args = function.get("arguments") or "{}"
+    try:
+        args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+    except json.JSONDecodeError:
+        return name, {}, {"error": "Malformed tool arguments: expected a JSON object."}
+    if not isinstance(args, dict):
+        return name, {}, {"error": "Malformed tool arguments: expected a JSON object."}
+    if name == "get_region_capacity" and not isinstance(args.get("region"), str):
+        return name, {}, {"error": "Malformed tool arguments: 'region' must be a string."}
+    if name == "calculate_migration_cost" and (
+        not isinstance(args.get("target_region"), str)
+        or not isinstance(args.get("app_names"), list)
+        or not all(isinstance(item, str) for item in args.get("app_names", []))
+    ):
+        return (
+            name,
+            {},
+            {"error": "Malformed tool arguments: expected string app_names and target_region."},
+        )
+    return name, args, estate.dispatch(name, args)
+
+
 def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun:
     """Live streaming agent loop. ``on_event(kind, **kw)`` receives:
     ``round`` (n), ``tool`` (name, args, result, summary), ``delta`` (text)."""
@@ -440,6 +503,8 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
 
     estate = CloudEstate()
     if not client.thinking_ready():
+        if client.cfg.strict:
+            raise RuntimeError("Thinking service is not configured")
         return fallback_plan(estate)
 
     t0 = time.time()
@@ -465,7 +530,6 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                 client.chat_completion_stream(
                     messages,
                     tools=TOOLS_SCHEMA,
-                    tool_choice="auto",
                     reasoning_display="encrypted",
                 )
                 if rnd < max_rounds
@@ -480,15 +544,15 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                     emit("stats", **val)
                 elif kind == "message":
                     msg = val
+            if not isinstance(msg, dict):
+                raise RuntimeError("Thinking stream ended without an assistant message")
             messages.append(msg)
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
                 answer = msg.get("content") or produced or ""
                 return _finish_live(estate, answer, trace, time.time() - t0, stats)
             for tc in tool_calls:
-                fn = tc["function"]["name"]
-                args = json.loads(tc["function"].get("arguments") or "{}")
-                result = estate.dispatch(fn, args)
+                fn, args, result = execute_tool_call(estate, tc)
                 trace.append((fn, args, result))
                 emit("tool", name=fn, args=args, result=result, summary=_tool_summary(fn, result))
                 messages.append(
@@ -501,6 +565,8 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                 )
         return _finish_live(estate, produced or "", trace, time.time() - t0, stats)
     except Exception as exc:
+        if client.cfg.strict:
+            raise
         run = fallback_plan(estate)
         run.error = str(exc)
         run.elapsed = time.time() - t0
@@ -512,7 +578,6 @@ def _finish_live(
 ) -> AgentRun:
     """Wrap a live answer, validating the structured plan when the model supplied one."""
     proposal = extract_structured_plan(answer)
-    validation = None
     if proposal:
         # Use a default only when the key is absent: `or []` would normalise a
         # malformed-but-falsy value ({}, null, "") into an empty list and slip it
@@ -520,14 +585,74 @@ def _finish_live(
         validation = validate_plan(
             estate, proposal.get("moves", []), proposal.get("decommissions", [])
         )
-    return AgentRun(
-        "live",
-        answer,
-        trace,
-        elapsed=elapsed,
-        validation=validation,
-        proposal=proposal,
-        stats=stats,
+        if validation.ok:
+            structured = MigrationPlan.from_validated_mapping(
+                {
+                    "moves": proposal.get("moves", []),
+                    "decommissions": proposal.get("decommissions", []),
+                    "risks": proposal.get("risks", []),
+                }
+            )
+            return AgentRun(
+                "live",
+                render_validated_plan(estate, structured, validation),
+                trace,
+                elapsed=elapsed,
+                validation=validation,
+                proposal=structured,
+                stats=stats,
+            )
+        safe = fallback_plan(estate)
+        safe.error = "Model plan rejected by deterministic validation."
+        safe.elapsed = elapsed
+        safe.trace = trace
+        safe.rejected_validation = validation
+        safe.stats = stats
+        return safe
+
+    safe = fallback_plan(estate)
+    safe.error = "Model response did not contain a machine-checkable plan."
+    safe.elapsed = elapsed
+    safe.trace = trace
+    safe.stats = stats
+    return safe
+
+
+def render_validated_plan(
+    estate: CloudEstate, proposal: MigrationPlan, validation: PlanValidation
+) -> str:
+    """Render factual Markdown exclusively from the validated proposal and estate."""
+    rows = ["| Action | Application | Region |", "|---|---|---|"]
+    for move in proposal.moves:
+        rows.append(f"| Move | {move.app} | {move.target_region} |")
+    for name in proposal.decommissions:
+        rows.append(f"| Decommission | {name} | {estate.apps[name]['region']} |")
+    utilization = ["| Region | Final utilization |", "|---|---:|"]
+    for region, value in validation.utilization.items():
+        utilization.append(f"| {region} | {value:.1f}% |")
+    risk_lines = [f"- {risk}" for risk in proposal.risks]
+    if not risk_lines:
+        risk_lines = ["- Review dependencies and migration sequencing before execution."]
+    return "\n".join(
+        [
+            "## Validated migration plan",
+            "",
+            f"Baseline **${validation.baseline_cost:,.0f}/month** → "
+            f"**${validation.new_cost:,.0f}/month** "
+            f"(**{validation.saved_pct:.1f}% monthly cost reduction**).",
+            "",
+            *rows,
+            "",
+            "### Resulting regional utilization",
+            "",
+            *utilization,
+            "",
+            f"Estimated one-time migration cost: **${validation.one_time_cost:,.0f}**.",
+            "",
+            "### Tradeoffs & risks",
+            "",
+            *risk_lines,
+        ]
     )
 
 
@@ -600,11 +725,11 @@ def fallback_plan(estate: CloudEstate) -> AgentRun:
     )
     # Hold the offline planner to the same bar as the model: both paths are
     # checked by the same validator, so the badge never claims more than was proven.
-    proposal = {
-        "moves": [{"app": m["app"], "target_region": m["to"]} for m in moves],
-        "decommissions": [r["app"] for r in decomm_rows],
-    }
-    validation = validate_plan(estate, proposal["moves"], proposal["decommissions"])
+    proposal = MigrationPlan(
+        moves=tuple(PlanMove(m["app"], m["to"]) for m in moves),
+        decommissions=tuple(r["app"] for r in decomm_rows),
+    )
+    validation = validate_plan(estate, *proposal.validation_inputs())
     return AgentRun("fallback", md, trace=[], error=None, validation=validation, proposal=proposal)
 
 
@@ -720,6 +845,13 @@ def render(client: MAIClient) -> None:
                 f"Live call failed → fell back to the deterministic planner. Detail: {run.error}"
             )
         plan_ph.markdown(run.plan_markdown)
+
+        if run.rejected_validation is not None:
+            st.error(
+                "The model proposal was rejected; the safe deterministic plan is shown instead."
+            )
+            for violation in run.rejected_validation.violations:
+                st.markdown(f"- {violation}")
 
         # The model proposes; this panel reports what deterministic code verified.
         if run.validation is not None:

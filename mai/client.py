@@ -4,8 +4,8 @@ Design goals (per the presentation requirement "must not fail live on stage"):
 
 * If credentials are configured, call the REAL API exactly as documented in
   docs/API_VERIFIED.md.
-* If they're not configured, OR the live call raises for any reason, degrade to
-  a deterministic FALLBACK and keep going.
+* In default ``demo`` mode, missing credentials or a live failure degrade to a
+  deterministic FALLBACK. In ``strict`` mode they raise.
 * Every result carries ``source`` ("live" | "fallback") so the UI can badge it.
 
 Only ``requests`` is used for HTTP so the code matches the Microsoft REST docs
@@ -74,8 +74,6 @@ class MAIClient:
         self,
         messages: list[dict],
         tools: list[dict] | None,
-        tool_choice: str | None,
-        temperature: float | None,
         max_completion_tokens: int | None,
         reasoning_display: str | None,
     ) -> dict[str, Any]:
@@ -92,10 +90,6 @@ class MAIClient:
         }
         if tools:
             payload["tools"] = tools
-            if tool_choice is not None:
-                payload["tool_choice"] = tool_choice
-        if temperature is not None:
-            payload["temperature"] = temperature
         if max_completion_tokens is not None:
             payload["max_completion_tokens"] = max_completion_tokens
         if reasoning_display is not None:
@@ -106,8 +100,6 @@ class MAIClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        tool_choice: str | None = None,
-        temperature: float | None = None,
         max_completion_tokens: int | None = None,
         reasoning_display: str | None = None,
     ) -> dict:
@@ -115,12 +107,12 @@ class MAIClient:
 
         Raises on any HTTP error (the caller decides whether to fall back).
         """
+        if not self.cfg.foundry_ready:
+            raise RuntimeError("Thinking service is not configured")
         resp = requests.post(
             self.cfg.chat_url,
             headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
-            json=self._chat_payload(
-                messages, tools, tool_choice, temperature, max_completion_tokens, reasoning_display
-            ),
+            json=self._chat_payload(messages, tools, max_completion_tokens, reasoning_display),
             timeout=self.cfg.thinking_timeout,
         )
         resp.raise_for_status()
@@ -130,7 +122,6 @@ class MAIClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        tool_choice: str | None = None,
         reasoning_display: str | None = None,
     ):
         """Stream a chat completion (SSE) from MAI-Thinking-1.
@@ -146,14 +137,17 @@ class MAIClient:
         safety block can arrive *after* partial content) so truncated output is
         never mistaken for a complete answer.
         """
-        payload = self._chat_payload(messages, tools, tool_choice, None, None, reasoning_display)
+        if not self.cfg.foundry_ready:
+            raise RuntimeError("Thinking service is not configured")
+        payload = self._chat_payload(messages, tools, None, reasoning_display)
         payload["stream"] = True
 
         content_parts: list[str] = []
         tool_acc: list[dict] = []  # ordered, assembled tool calls
         index_map: dict[int, int] = {}  # streamed index -> position in tool_acc
-        reasoning: Any = None
+        assistant_fields: dict[str, Any] = {}
         stats: dict[str, Any] = {}
+        event_type: str | None = None
         with requests.post(
             self.cfg.chat_url,
             headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
@@ -166,6 +160,9 @@ class MAIClient:
                 if not raw:
                     continue
                 line = raw.decode("utf-8")
+                if line.startswith("event:"):
+                    event_type = line[6:].strip().lower()
+                    continue
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -174,20 +171,28 @@ class MAIClient:
                 try:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
+                    if event_type == "error":
+                        raise MAIStreamError("SSEError", "Streaming request failed") from None
+                    continue
+                if not isinstance(chunk, dict):
+                    if event_type == "error":
+                        raise MAIStreamError("SSEError", "Streaming request failed")
                     continue
 
                 # An error event can follow partial content (e.g. a safety block).
                 # Surface it instead of returning the truncated text as success.
-                if chunk.get("error"):
-                    err = chunk["error"]
+                err = chunk.get("error")
+                if err or event_type == "error" or chunk.get("type") == "error":
+                    err = err if isinstance(err, dict) else chunk
                     raise MAIStreamError(
                         err.get("type") or err.get("code") or "UnknownError",
                         err.get("message", "Streaming request failed"),
                         err.get("request_id") or chunk.get("id"),
                     )
+                event_type = None
 
                 # Observability: usage/model/id arrive at the top level of chunks.
-                for key in ("usage", "model", "system_fingerprint"):
+                for key in ("usage", "model", "system_fingerprint", "created", "object"):
                     if chunk.get(key) is not None:
                         stats[key] = chunk[key]
                 if chunk.get("id"):
@@ -199,9 +204,14 @@ class MAIClient:
                 choice = choices[0]
                 if choice.get("finish_reason"):
                     stats["finish_reason"] = choice["finish_reason"]
+                    if choice["finish_reason"] in {"blocked", "content_filter", "safety"}:
+                        raise MAIStreamError(
+                            "SafetyBlockedError", "Streaming response was blocked by safety filters"
+                        )
                 delta = choice.get("delta") or {}
-                if delta.get("reasoning"):
-                    reasoning = delta["reasoning"]
+                for key in ("reasoning", "refusal", "annotations"):
+                    if delta.get(key) is not None:
+                        assistant_fields[key] = delta[key]
                 if delta.get("content"):
                     content_parts.append(delta["content"])
                     yield ("content", delta["content"])
@@ -216,6 +226,7 @@ class MAIClient:
                         slot["args"] += fn["arguments"]
 
         message: dict[str, Any] = {"role": "assistant", "content": "".join(content_parts) or None}
+        message.update(assistant_fields)
         if tool_acc:
             message["tool_calls"] = [
                 {
@@ -226,8 +237,6 @@ class MAIClient:
                 for i, s in enumerate(tool_acc)
             ]
         # Opaque reasoning state — echoed back untouched, never displayed.
-        if reasoning is not None:
-            message["reasoning"] = reasoning
         if stats:
             yield ("stats", stats)
         yield ("message", message)
@@ -259,10 +268,21 @@ class MAIClient:
                     raise
                 png = fallback.edit_image(image_bytes, prompt)
                 return MAIResult(
-                    "fallback", png, {"prompt": prompt}, error=str(exc), elapsed=time.time() - t0
+                    "fallback",
+                    png,
+                    {"prompt": prompt, "model": self.cfg.image_edit_deployment},
+                    error=str(exc),
+                    elapsed=time.time() - t0,
                 )
+        if self.cfg.strict:
+            raise RuntimeError("Image service is not configured")
         png = fallback.edit_image(image_bytes, prompt)
-        return MAIResult("fallback", png, {"prompt": prompt}, elapsed=time.time() - t0)
+        return MAIResult(
+            "fallback",
+            png,
+            {"prompt": prompt, "model": self.cfg.image_edit_deployment},
+            elapsed=time.time() - t0,
+        )
 
     # ── Image generation (text-to-image; also powers the Flash "speed" demo) ─────
     def generate_image(
@@ -277,27 +297,15 @@ class MAIClient:
         t0 = time.time()
         deployment = deployment or self.cfg.image_gen_deployment
         if self.cfg.image_ready:
-            attempts = [
-                {"model": deployment, "prompt": prompt, "width": width, "height": height},
-            ]
-            if max(width, height) > 768:
-                attempts.append(
-                    {"model": deployment, "prompt": prompt, "width": 768, "height": 768}
-                )
-            # `model` is the DEPLOYMENT name, which users are free to rename — never
-            # hardcode a model id here or the retry fails on custom deployments.
-            if deployment != self.cfg.image_edit_deployment:
-                attempts.append(
-                    {
-                        "model": self.cfg.image_edit_deployment,
-                        "prompt": prompt,
-                        "width": 768,
-                        "height": 768,
-                    }
-                )
-
+            attempts = [{"model": deployment, "prompt": prompt, "width": width, "height": height}]
+            seen: set[tuple[str, int, int]] = set()
             last_error: Exception | None = None
-            for payload in attempts:
+            while attempts:
+                payload = attempts.pop(0)
+                key = (payload["model"], payload["width"], payload["height"])
+                if key in seen:
+                    continue
+                seen.add(key)
                 try:
                     resp = requests.post(
                         self.cfg.image_url("generations"),
@@ -318,13 +326,15 @@ class MAIClient:
                     )
                 except Exception as exc:
                     last_error = exc
-                    if payload is attempts[-1] or not _is_retryable_image_error(exc):
-                        # Give up. Raising here (bare, inside the except block) keeps
-                        # the traceback free of the extra frame that re-raising a
-                        # saved exception after the loop would add.
-                        if self.cfg.strict:
-                            raise
-                        break
+                    retry = _next_image_attempt(exc, payload, self.cfg.image_edit_deployment)
+                    if retry and (retry["model"], retry["width"], retry["height"]) not in seen:
+                        attempts.append(retry)
+                        continue
+                    # Give up. Raising here (bare, inside the except block) keeps
+                    # the traceback free of an extra re-raise frame.
+                    if self.cfg.strict:
+                        raise
+                    break
             png = fallback.generate_image(prompt, width, height)
             return MAIResult(
                 "fallback",
@@ -334,6 +344,8 @@ class MAIClient:
                 elapsed=time.time() - t0,
             )
 
+        if self.cfg.strict:
+            raise RuntimeError("Image service is not configured")
         png = fallback.generate_image(prompt, width, height)
         return MAIResult(
             "fallback", png, {"prompt": prompt, "model": deployment}, elapsed=time.time() - t0
@@ -350,6 +362,7 @@ class MAIClient:
         mime: str | None = None,
     ) -> MAIResult:
         t0 = time.time()
+        audio_mime = _validate_audio(audio_bytes, filename, mime)
         definition: dict[str, Any] = {
             "enhancedMode": {"enabled": True, "model": self.cfg.transcribe_model}
         }
@@ -360,21 +373,26 @@ class MAIClient:
         if phrases:
             definition["phraseList"] = {"phrases": phrases}
 
-        if self.cfg.transcribe_ready and audio_bytes:
+        if self.cfg.transcribe_ready:
             try:
                 resp = requests.post(
                     self.cfg.transcribe_url,
                     headers={"Ocp-Apim-Subscription-Key": self.cfg.speech_key},
-                    files={"audio": (filename, audio_bytes, mime or _audio_mime(filename))},
+                    files={"audio": (filename, audio_bytes, audio_mime)},
                     data={"definition": json.dumps(definition)},
-                    timeout=self.cfg.speech_timeout,
+                    timeout=self.cfg.transcribe_timeout,
                 )
                 resp.raise_for_status()
                 text = _extract_transcript(resp.json())
                 return MAIResult(
                     "live",
                     text,
-                    {"phrases": phrases or [], "verbatim": verbatim, "definition": definition},
+                    {
+                        "phrases": phrases or [],
+                        "verbatim": verbatim,
+                        "definition": definition,
+                        "mime": audio_mime,
+                    },
                     elapsed=time.time() - t0,
                 )
             except Exception as exc:
@@ -384,15 +402,17 @@ class MAIClient:
                 return MAIResult(
                     "fallback",
                     text,
-                    {"phrases": phrases or [], "verbatim": verbatim},
+                    {"phrases": phrases or [], "verbatim": verbatim, "mime": audio_mime},
                     error=str(exc),
                     elapsed=time.time() - t0,
                 )
+        if self.cfg.strict:
+            raise RuntimeError("Transcription service is not configured")
         text = fallback.transcribe(phrases, verbatim)
         return MAIResult(
             "fallback",
             text,
-            {"phrases": phrases or [], "verbatim": verbatim},
+            {"phrases": phrases or [], "verbatim": verbatim, "mime": audio_mime},
             elapsed=time.time() - t0,
         )
 
@@ -418,7 +438,7 @@ class MAIClient:
                         "Ocp-Apim-Subscription-Key": self.cfg.speech_key,
                     },
                     data=ssml.encode("utf-8"),
-                    timeout=self.cfg.speech_timeout,
+                    timeout=self.cfg.voice_timeout,
                 )
                 resp.raise_for_status()
                 meta["mime"] = "audio/mpeg"
@@ -429,6 +449,8 @@ class MAIClient:
                 audio, mime = fallback.synthesize(text)
                 meta["mime"] = mime
                 return MAIResult("fallback", audio, meta, error=str(exc), elapsed=time.time() - t0)
+        if self.cfg.strict:
+            raise RuntimeError("Voice service is not configured")
         audio, mime = fallback.synthesize(text)
         meta["mime"] = mime
         return MAIResult("fallback", audio, meta, elapsed=time.time() - t0)
@@ -460,19 +482,22 @@ def _first_b64_png(payload: dict) -> bytes:
     for item in payload.get("data", []):
         if "b64_json" in item:
             return base64.b64decode(item["b64_json"])
-    raise ValueError(f"No b64_json in image response: {str(payload)[:200]}")
+    raise ValueError("Image response did not contain PNG data")
 
 
-def _is_retryable_image_error(exc: Exception) -> bool:
-    """Whether to try the next image attempt. Because each retry *changes* the request
-    (smaller size / base model), 400/404 are treated as retryable here — not just
-    transient 5xx/429."""
-    if isinstance(exc, requests.Timeout):
-        return True
-    if isinstance(exc, requests.HTTPError):
-        status = getattr(exc.response, "status_code", None)
-        return status in {400, 404, 429, 500, 502, 503, 504}
-    return True
+def _next_image_attempt(exc: Exception, payload: dict, fallback_deployment: str) -> dict | None:
+    """Return one meaningfully changed retry, or stop for transient/unrelated errors."""
+    if not isinstance(exc, requests.HTTPError):
+        return None
+    status = getattr(exc.response, "status_code", None)
+    retry = dict(payload)
+    if status in {400, 413, 422} and (payload["width"], payload["height"]) != (768, 768):
+        retry.update(width=768, height=768)
+        return retry
+    if status in {400, 404} and payload["model"] != fallback_deployment:
+        retry["model"] = fallback_deployment
+        return retry
+    return None
 
 
 def _extract_transcript(payload: dict) -> str:
@@ -492,7 +517,7 @@ def _extract_transcript(payload: dict) -> str:
             if payload.get(key):
                 return str(payload[key])
     # Never hand back raw JSON as if it were a transcript.
-    raise ValueError(f"Unrecognised transcription response shape: {json.dumps(payload)[:300]}")
+    raise ValueError("Transcription response did not contain recognizable transcript text")
 
 
 _AUDIO_MIME = {
@@ -506,3 +531,27 @@ def _audio_mime(filename: str) -> str:
     """Best-effort MIME from the file extension (Speech accepts WAV/MP3/FLAC)."""
     ext = pathlib.Path(filename).suffix.lower()
     return _AUDIO_MIME.get(ext, "application/octet-stream")
+
+
+_SUPPORTED_AUDIO_MIMES = {
+    "audio/flac",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/wav",
+    "audio/x-flac",
+    "audio/x-wav",
+}
+
+
+def _validate_audio(audio_bytes: bytes, filename: str, mime: str | None) -> str:
+    if not audio_bytes:
+        raise ValueError("Audio input is empty")
+    supplied = (mime or "").split(";", 1)[0].strip().lower()
+    inferred = _audio_mime(filename)
+    if supplied in _SUPPORTED_AUDIO_MIMES:
+        return supplied
+    if inferred in _SUPPORTED_AUDIO_MIMES:
+        # Preserve a real uploaded MIME value even if the browser reports a generic
+        # binary type; the extension still provides deterministic format validation.
+        return supplied or inferred
+    raise ValueError("Unsupported audio format; use WAV, MP3, or FLAC")

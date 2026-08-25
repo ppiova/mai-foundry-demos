@@ -59,23 +59,41 @@ class Config:
     )
 
     # Per-service (connect, read) timeouts. Reasoning legitimately streams for
-    # 30-150s, so a single short budget would abort healthy runs; image and speech
-    # are much faster and should fail sooner.
-    connect_timeout: int = 10
+    # 30-150s, so a single short budget would abort healthy runs. Keep each API
+    # independently tunable: a slow transcription must not also lengthen TTS.
+    thinking_connect_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_THINKING_CONNECT_TIMEOUT", "10"))
+    )
     thinking_read_timeout: int = field(
         default_factory=lambda: int(_env("MAI_THINKING_READ_TIMEOUT", "300"))
+    )
+    image_connect_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_IMAGE_CONNECT_TIMEOUT", "10"))
     )
     image_read_timeout: int = field(
         default_factory=lambda: int(_env("MAI_IMAGE_READ_TIMEOUT", "180"))
     )
-    speech_read_timeout: int = field(
-        default_factory=lambda: int(_env("MAI_SPEECH_READ_TIMEOUT", "90"))
+    transcribe_connect_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_TRANSCRIBE_CONNECT_TIMEOUT", "10"))
+    )
+    transcribe_read_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_TRANSCRIBE_READ_TIMEOUT", "180"))
+    )
+    voice_connect_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_VOICE_CONNECT_TIMEOUT", "10"))
+    )
+    voice_read_timeout: int = field(
+        default_factory=lambda: int(_env("MAI_VOICE_READ_TIMEOUT", "90"))
     )
 
     # "demo" (default): a failed live call degrades to a labelled fallback so a
     # stage demo never dies. "strict": live failures raise, so pre-flight checks
     # and CI can actually fail. See MAI_EXECUTION_MODE in .env.example.
     execution_mode: str = field(default_factory=lambda: _env("MAI_EXECUTION_MODE", "demo").lower())
+
+    def __post_init__(self) -> None:
+        if self.execution_mode not in {"demo", "strict"}:
+            raise ValueError("MAI_EXECUTION_MODE must be 'demo' or 'strict'")
 
     # ── timeouts / execution mode ────────────────────────────────────────────
     @property
@@ -85,15 +103,19 @@ class Config:
 
     @property
     def thinking_timeout(self) -> tuple[int, int]:
-        return (self.connect_timeout, self.thinking_read_timeout)
+        return (self.thinking_connect_timeout, self.thinking_read_timeout)
 
     @property
     def image_timeout(self) -> tuple[int, int]:
-        return (self.connect_timeout, self.image_read_timeout)
+        return (self.image_connect_timeout, self.image_read_timeout)
 
     @property
-    def speech_timeout(self) -> tuple[int, int]:
-        return (self.connect_timeout, self.speech_read_timeout)
+    def transcribe_timeout(self) -> tuple[int, int]:
+        return (self.transcribe_connect_timeout, self.transcribe_read_timeout)
+
+    @property
+    def voice_timeout(self) -> tuple[int, int]:
+        return (self.voice_connect_timeout, self.voice_read_timeout)
 
     # ── readiness flags ──────────────────────────────────────────────────────
     @property
@@ -112,15 +134,17 @@ class Config:
     def transcribe_ready(self) -> bool:
         return bool(self.speech_endpoint and self.speech_key)
 
+    @property
+    def any_service_ready(self) -> bool:
+        """Credential readiness without importing or depending on Streamlit."""
+        return self.foundry_ready or self.image_ready or self.speech_ready or self.transcribe_ready
+
     # ── derived URLs ─────────────────────────────────────────────────────────
     @property
     def chat_url(self) -> str:
         """Native MAI chat-completions surface.
 
-        Both ``/mai/v1/chat/completions`` and the OpenAI-compatible
-        ``/openai/v1/chat/completions`` answer for MAI-Thinking-1, but only the
-        native path accepts ``reasoning_display`` (the OpenAI shim rejects it with
-        ``unrecognized_request_argument``). Verified against a live deployment;
+        This is the path in the current MAI-Thinking-1 Microsoft Learn article;
         see docs/API_VERIFIED.md.
         """
         return f"{self.foundry_endpoint}/mai/v1/chat/completions"
@@ -148,7 +172,7 @@ def get_config() -> Config:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Voice registry — voice name -> supported mstts:express-as styles.
-# Source: docs/API_VERIFIED.md (Microsoft Learn, verified 2026-08-13).
+# Source: docs/API_VERIFIED.md (Microsoft Learn, verified 2026-08-25).
 # ─────────────────────────────────────────────────────────────────────────────
 _EN_RICH = {
     "angry",

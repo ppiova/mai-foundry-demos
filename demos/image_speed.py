@@ -1,9 +1,7 @@
-"""Demo 5 (backup) — MAI-Image-2.5-Flash "Speed at scale".
+"""Demo 5 (backup) — MAI-Image-2.5-Flash batch variations.
 
-Not the most spectacular image — the point is throughput. Generate several simple
-product variations in a loop with an on-screen timer, then explain the tradeoff:
-Flash for high-volume/low-latency simple prompts, 2.5 for complex/controlled edits.
-(MAI-Image-2e is deprecated; 2.5-Flash is its current fast/high-volume successor.)
+Generate several simple product variations in a loop and report the observed time.
+The UI makes no latency or throughput guarantee.
 """
 
 from __future__ import annotations
@@ -28,12 +26,12 @@ VARIATIONS = [
 
 
 def render(client: MAIClient) -> None:
-    st.subheader("⚡ MAI-Image-2.5-Flash — Speed at scale")
-    st.caption("High-volume product variations. Flash for fast/simple prompts; 2.5 for control.")
+    st.subheader("⚡ MAI-Image-2.5-Flash — Batch variations")
+    st.caption("Generate several product variations and display observed request timing.")
 
     st.info(
         f"Mode: **{'🟢 LIVE' if client.cfg.image_ready else '🟡 FALLBACK (mock)'}**  ·  "
-        f"model `{client.cfg.image_gen_deployment}`  ·  Flash = low-latency, high-volume; 2.5 = max control."
+        f"deployment `{client.cfg.image_gen_deployment}`  ·  timing is measured for this run only."
     )
 
     n = st.slider("Number of variations", 2, len(VARIATIONS), 6, key="sp_n")

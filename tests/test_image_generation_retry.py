@@ -22,7 +22,7 @@ class FakeResponse:
 
 
 class GenerateImageRetryTests(unittest.TestCase):
-    def test_retries_when_live_image_generation_fails_with_a_retryable_error(self):
+    def test_retries_with_smaller_dimensions_for_a_request_shape_error(self):
         cfg = Config(
             image_endpoint="https://example.services.ai.azure.com",
             image_api_key="test-key",
@@ -32,7 +32,7 @@ class GenerateImageRetryTests(unittest.TestCase):
         client = MAIClient(cfg)
 
         first_error = requests.HTTPError("bad request")
-        first_error.response = type("Resp", (), {"status_code": 429})()
+        first_error.response = type("Resp", (), {"status_code": 400})()
 
         with (
             patch(
@@ -49,6 +49,43 @@ class GenerateImageRetryTests(unittest.TestCase):
         self.assertEqual(result.source, "live")
         self.assertEqual(result.data, b"test")
         self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_post.call_args_list[1].kwargs["json"]["width"], 768)
+        self.assertEqual(mock_post.call_args_list[1].kwargs["json"]["height"], 768)
+
+    def test_does_not_retry_rate_limits_with_an_unrelated_request_change(self):
+        cfg = Config(
+            image_endpoint="https://example.services.ai.azure.com",
+            image_api_key="test-key",
+        )
+        error = requests.HTTPError("rate limited")
+        error.response = type("Resp", (), {"status_code": 429})()
+        with (
+            patch("mai.client.requests.post", return_value=FakeResponse(exc=error)) as mock_post,
+            patch("mai.client.fallback.generate_image", return_value=b"fallback"),
+        ):
+            result = MAIClient(cfg).generate_image("A test prompt", width=896, height=896)
+        self.assertEqual(result.source, "fallback")
+        self.assertEqual(mock_post.call_count, 1)
+
+    def test_uses_configured_edit_deployment_for_deployment_retry(self):
+        cfg = Config(
+            image_endpoint="https://example.services.ai.azure.com",
+            image_api_key="test-key",
+            image_gen_deployment="custom-fast",
+            image_edit_deployment="custom-quality",
+        )
+        error = requests.HTTPError("deployment not found")
+        error.response = type("Resp", (), {"status_code": 404})()
+        with patch(
+            "mai.client.requests.post",
+            side_effect=[
+                FakeResponse(exc=error),
+                FakeResponse(payload={"data": [{"b64_json": "dGVzdA=="}]}),
+            ],
+        ) as mock_post:
+            result = MAIClient(cfg).generate_image("A test prompt", width=768, height=768)
+        self.assertEqual(result.meta["model"], "custom-quality")
+        self.assertEqual(mock_post.call_args_list[1].kwargs["json"]["model"], "custom-quality")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,13 @@ Each demo illustrates one capability and can run in one of two modes:
 The API surface used here was checked against Microsoft Learn on 2026-08-25. See
 [docs/API_VERIFIED.md](docs/API_VERIFIED.md) for the details.
 
-## What this repo demonstrates
+## What the user will see
+
+A quick preview of the experience presented by the demo app:
+
+![MAI Examples demo](assets/images/contoso_hydrate.png)
+
+## What this repository demonstrates
 
 These are four selected MAI capabilities, not an exhaustive catalog of the MAI family.
 

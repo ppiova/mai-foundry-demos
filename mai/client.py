@@ -168,6 +168,8 @@ class MAIClient:
                     continue
                 data = line[5:].strip()
                 if data == "[DONE]":
+                    if event_type == "error":
+                        raise MAIStreamError("SSEError", "Streaming request failed")
                     break
                 try:
                     chunk = json.loads(data)

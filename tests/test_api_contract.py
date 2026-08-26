@@ -188,6 +188,12 @@ def test_stream_raises_on_named_sse_error_event(monkeypatch):
         _run_stream(monkeypatch, lines)
 
 
+def test_stream_raises_when_error_event_ends_with_done(monkeypatch):
+    lines = ["event: error", "data: [DONE]"]
+    with pytest.raises(MAIStreamError, match="SSEError"):
+        _run_stream(monkeypatch, lines)
+
+
 def test_stream_raises_on_safety_finish_reason(monkeypatch):
     lines = _sse(
         {"choices": [{"delta": {"content": "partial"}}]},

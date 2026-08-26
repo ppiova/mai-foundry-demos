@@ -33,6 +33,12 @@ def test_invalid_execution_mode_is_rejected():
         Config(execution_mode="sometimes")
 
 
+def test_execution_mode_is_case_insensitive():
+    cfg = Config(execution_mode=" STRICT ")
+    assert cfg.execution_mode == "strict"
+    assert cfg.strict
+
+
 def test_image_only_configuration_counts_as_a_live_service():
     cfg = Config(image_endpoint="https://image.example", image_api_key="key")
     assert cfg.image_ready

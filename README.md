@@ -94,8 +94,13 @@ confirm current model/region availability in your own subscription before deploy
 
 ### How the models are called
 
-Every model is a deployment on a **Microsoft Foundry** resource (kind `AIServices`),
-reached over plain HTTPS:
+The sample uses two service surfaces, both reached over HTTPS:
+
+- **Thinking and Image** are model deployments on Microsoft Foundry `AIServices`
+  resources.
+- **Transcribe and Voice** are consumed through Azure Speech APIs in Foundry Tools.
+
+The four capabilities are called as follows:
 
 - **Thinking-1** → `POST {endpoint}/mai/v1/chat/completions` (`api-key` header, SSE
   streaming, `tools` function calling, `max_completion_tokens`, and

@@ -1,7 +1,7 @@
 """MAI Examples — a Streamlit app of short, focused demos for the MAI stack.
 
 Run:  streamlit run app.py
-Each demo proves exactly one claim from the deck and runs LIVE (with keys in .env)
+Each demo illustrates one focused capability and runs LIVE (with keys in .env)
 or in FALLBACK mode (no keys), degrading per-call if a live request fails.
 """
 

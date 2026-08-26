@@ -92,7 +92,9 @@ class Config:
     execution_mode: str = field(default_factory=lambda: _env("MAI_EXECUTION_MODE", "demo").lower())
 
     def __post_init__(self) -> None:
-        if self.execution_mode not in {"demo", "strict"}:
+        normalized = self.execution_mode.strip().lower()
+        object.__setattr__(self, "execution_mode", normalized)
+        if normalized not in {"demo", "strict"}:
             raise ValueError("MAI_EXECUTION_MODE must be 'demo' or 'strict'")
 
     # ── timeouts / execution mode ────────────────────────────────────────────

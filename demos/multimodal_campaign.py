@@ -4,7 +4,7 @@ Speech → Reasoning → Image → Speech, end to end:
   1. MAI-Transcribe-1.5 turns a spoken brief into text.
   2. MAI-Thinking-1 produces a campaign name, tagline, creative brief,
      a hero-image prompt and a voice-over script (as JSON).
-  3. MAI-Image-2.5 renders the hero visual.
+  3. The configured MAI Image deployment renders the hero visual.
   4. MAI-Voice-2 generates a ~15s expressive voice-over.
 
 The point: not isolated models — one multimodal platform stack.
@@ -136,7 +136,9 @@ def render(client: MAIClient) -> None:
     st.caption("Speech → Reasoning → Image → Speech, in one flow.")
 
     st.info(
-        "Chains **Transcribe-1.5 → Thinking-1 → Image-2.5 → Voice-2**. Each stage badges LIVE/FALLBACK."
+        "Chains "
+        f"**Transcribe-1.5 → Thinking-1 → `{client.cfg.image_gen_deployment}` → Voice-2**. "
+        "Each stage badges LIVE/FALLBACK."
     )
 
     brief_text = st.text_area("Spoken/typed brief", value=DEFAULT_BRIEF, height=80, key="mm_brief")

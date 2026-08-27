@@ -22,8 +22,6 @@ A quick preview of the experience presented by the demo app:
 
 These are four selected MAI capabilities, not an exhaustive catalog of the MAI family.
 
-These are four selected MAI capabilities, not an exhaustive catalog of the MAI family.
-
 The app is organized around four main story beats and a finale:
 
 | Demo | What it shows | Typical setup |

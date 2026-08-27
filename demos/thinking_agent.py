@@ -221,7 +221,8 @@ SYSTEM_PROMPT = (
     "before committing to moves, and respect every hard constraint:\n"
     "  1) Do NOT move any Tier-1 application.\n"
     "  2) No region may exceed the capacity ceiling (70%).\n"
-    "  3) Achieve at least a 20% reduction in total monthly cost.\n"
+    "  3) Achieve at least a 20% reduction in total monthly cost. Aim for 23-25% "
+    "so a marginal estimate never lands under the 20% floor.\n"
     "Prefer decommissioning idle_candidate dev/test workloads and moving low-tier "
     "workloads to cheaper regions with headroom. When done, output a clear Markdown "
     "plan: a summary line with baseline vs new monthly cost and % saved, a table of "
@@ -517,7 +518,37 @@ def execute_tool_call(estate: CloudEstate, tool_call: dict) -> tuple[str, dict, 
     return name, args, estate.dispatch(name, args)
 
 
-def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun:
+FINAL_ANSWER_NUDGE = (
+    "You have every tool result you need. Output the final plan now: the Markdown "
+    "sections described in your instructions, ending with the fenced json block. "
+    "Do not call any more tools."
+)
+
+
+def _stream_turn(
+    client: MAIClient, messages: list[dict], tools: list[dict] | None, emit
+) -> tuple[dict, str, dict]:
+    """Stream one assistant turn; return its message, streamed text, and stats."""
+    msg, produced, stats = None, "", {}
+    for kind, val in client.chat_completion_stream(
+        messages, tools=tools, reasoning_display="encrypted"
+    ):
+        if kind == "content":
+            produced += val
+            emit("delta", text=val)
+        elif kind == "stats":
+            stats.update(val)
+            emit("stats", **val)
+        elif kind == "message":
+            msg = val
+    if not isinstance(msg, dict):
+        raise RuntimeError("Thinking stream ended without an assistant message")
+    return msg, produced, stats
+
+
+def run_agent(
+    client: MAIClient, max_rounds: int = 8, final_retries: int = 2, on_event=None
+) -> AgentRun:
     """Live streaming agent loop. ``on_event(kind, **kw)`` receives:
     ``round`` (n), ``tool`` (name, args, result, summary), ``delta`` (text)."""
     import time
@@ -545,38 +576,22 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
     ]
     trace = []
     stats: dict = {}
+    answer, produced = "", ""
     try:
         for rnd in range(1, max_rounds + 1):
             emit("round", n=rnd)
-            msg, produced = None, ""
             # `reasoning_display="encrypted"` returns an opaque reasoning blob that we
             # append back untouched, so the model keeps its reasoning state across
-            # tool rounds without ever exposing the chain of thought.
-            stream = (
-                client.chat_completion_stream(
-                    messages,
-                    tools=TOOLS_SCHEMA,
-                    reasoning_display="encrypted",
-                )
-                if rnd < max_rounds
-                else client.chat_completion_stream(messages, reasoning_display="encrypted")
-            )
-            for kind, val in stream:
-                if kind == "content":
-                    produced += val
-                    emit("delta", text=val)
-                elif kind == "stats":
-                    stats.update(val)
-                    emit("stats", **val)
-                elif kind == "message":
-                    msg = val
-            if not isinstance(msg, dict):
-                raise RuntimeError("Thinking stream ended without an assistant message")
+            # tool rounds without ever exposing the chain of thought. Withholding the
+            # tools on the last round forces the model to commit to an answer.
+            tools = TOOLS_SCHEMA if rnd < max_rounds else None
+            msg, produced, turn_stats = _stream_turn(client, messages, tools, emit)
+            stats.update(turn_stats)
             messages.append(msg)
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
                 answer = msg.get("content") or produced or ""
-                return _finish_live(estate, answer, trace, time.time() - t0, stats)
+                break
             for tc in tool_calls:
                 fn, args, result = execute_tool_call(estate, tc)
                 trace.append((fn, args, result))
@@ -592,7 +607,25 @@ def run_agent(client: MAIClient, max_rounds: int = 6, on_event=None) -> AgentRun
                         "content": json.dumps(result),
                     }
                 )
-        return _finish_live(estate, produced or "", trace, time.time() - t0, stats)
+        else:
+            answer = produced
+
+        # A reasoning model can end a turn with reasoning only and no content, or
+        # with prose that omits the machine-checkable block. Ask again, without
+        # tools, rather than dropping to the deterministic planner on the first miss.
+        for attempt in range(1, final_retries + 1):
+            if extract_structured_plan(answer):
+                break
+            emit("retry", n=attempt, chars=len(answer))
+            messages.append({"role": "user", "content": FINAL_ANSWER_NUDGE})
+            msg, produced, turn_stats = _stream_turn(client, messages, None, emit)
+            stats.update(turn_stats)
+            messages.append(msg)
+            retried = msg.get("content") or produced or ""
+            if retried.strip():
+                answer = retried
+
+        return _finish_live(estate, answer, trace, time.time() - t0, stats)
     except Exception as exc:
         if client.cfg.strict:
             raise
@@ -865,6 +898,13 @@ def render(client: MAIClient) -> None:
             elif kind == "tool":
                 status.write(
                     f"🔧 `{kw['name']}({json.dumps(kw['args'])})` → {kw.get('summary', '')}"
+                )
+            elif kind == "retry":
+                state["buf"] = ""
+                plan_ph.markdown("")
+                status.write(
+                    f"↻ No machine-checkable plan yet ({kw['chars']} chars) "
+                    f"— asking again ({kw['n']})…"
                 )
             elif kind == "delta":
                 state["buf"] += kw["text"]

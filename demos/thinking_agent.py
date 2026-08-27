@@ -435,7 +435,7 @@ def validate_plan(
     saved_pct = 100.0 * saved / baseline if baseline else 0.0
     if saved_pct < min_savings_pct:
         violations.append(
-            f"Savings {saved_pct:.1f}% fall short of the {min_savings_pct:.0f}% target."
+            f"Savings {saved_pct:.2f}% fall short of the {min_savings_pct:.0f}% target."
         )
 
     return PlanValidation(
@@ -669,8 +669,8 @@ def render_validated_plan(
         [
             "## Validated migration plan",
             "",
-            f"Baseline **${validation.baseline_cost:,.0f}/month** → "
-            f"**${validation.new_cost:,.0f}/month** "
+            f"Baseline **\\${validation.baseline_cost:,.0f}/month** → "
+            f"**\\${validation.new_cost:,.0f}/month** "
             f"(**{validation.saved_pct:.1f}% monthly cost reduction**).",
             "",
             *rows,
@@ -679,7 +679,7 @@ def render_validated_plan(
             "",
             *utilization,
             "",
-            f"Estimated one-time migration cost: **${validation.one_time_cost:,.0f}**.",
+            f"Estimated one-time migration cost: **\\${validation.one_time_cost:,.0f}**.",
             "",
             "### Tradeoffs & risks",
             "",
@@ -777,8 +777,8 @@ def _render_plan_markdown(
     pct = 100.0 * saved / baseline
     lines = [
         f"### Migration plan — {pct:.1f}% monthly cost reduction",
-        f"**Baseline:** ${baseline:,.0f}/mo → **New:** ${baseline - saved:,.0f}/mo "
-        f"(**−${saved:,.0f}**, {pct:.1f}%). Constraints: no Tier-1 moved, all regions ≤ {estate.ceiling:.0f}%.",
+        f"**Baseline:** \\${baseline:,.0f}/mo → **New:** \\${baseline - saved:,.0f}/mo "
+        f"(**−\\${saved:,.0f}**, {pct:.1f}%). Constraints: no Tier-1 moved, all regions ≤ {estate.ceiling:.0f}%.",
         "",
     ]
     if decomm_rows:
@@ -788,7 +788,7 @@ def _render_plan_markdown(
             "| App | Region | Monthly saved |",
             "|---|---|--:|",
         ]
-        lines += [f"| {r['app']} | {r['region']} | ${r['monthly_saved']:,} |" for r in decomm_rows]
+        lines += [f"| {r['app']} | {r['region']} | \\${r['monthly_saved']:,} |" for r in decomm_rows]
         lines.append("")
     if moves:
         lines += [
@@ -798,8 +798,8 @@ def _render_plan_markdown(
             "|---|---|--:|--:|--:|",
         ]
         lines += [
-            f"| {m['app']} | {m['from']} → {m['to']} | ${m['monthly_before']:,} | "
-            f"${m['monthly_after']:,} | ${m['monthly_saved']:,} |"
+            f"| {m['app']} | {m['from']} → {m['to']} | \\${m['monthly_before']:,} | "
+            f"\\${m['monthly_after']:,} | \\${m['monthly_saved']:,} |"
             for m in moves
         ]
         lines.append("")

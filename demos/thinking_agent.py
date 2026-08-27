@@ -826,7 +826,9 @@ def _render_plan_markdown(
             "| App | Region | Monthly saved |",
             "|---|---|--:|",
         ]
-        lines += [f"| {r['app']} | {r['region']} | \\${r['monthly_saved']:,} |" for r in decomm_rows]
+        lines += [
+            f"| {r['app']} | {r['region']} | \\${r['monthly_saved']:,} |" for r in decomm_rows
+        ]
         lines.append("")
     if moves:
         lines += [

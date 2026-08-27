@@ -650,6 +650,11 @@ def _finish_live(
     return safe
 
 
+def _md_escape_dollars(text: str) -> str:
+    """Escape ``$`` so Streamlit does not parse model-authored amounts as LaTeX."""
+    return text.replace("$", r"\$")
+
+
 def render_validated_plan(
     estate: CloudEstate, proposal: MigrationPlan, validation: PlanValidation
 ) -> str:
@@ -662,7 +667,7 @@ def render_validated_plan(
     utilization = ["| Region | Final utilization |", "|---|---:|"]
     for region, value in validation.utilization.items():
         utilization.append(f"| {region} | {value:.1f}% |")
-    risk_lines = [f"- {risk}" for risk in proposal.risks]
+    risk_lines = [f"- {_md_escape_dollars(risk)}" for risk in proposal.risks]
     if not risk_lines:
         risk_lines = ["- Review dependencies and migration sequencing before execution."]
     return "\n".join(

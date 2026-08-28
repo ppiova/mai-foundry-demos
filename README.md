@@ -12,6 +12,15 @@ Each demo illustrates one capability and can run in one of two modes:
 The API surface used here was checked against Microsoft Learn on 2026-08-25. See
 [docs/API_VERIFIED.md](docs/API_VERIFIED.md) for the details.
 
+## The write-up
+
+The field report that came out of this work, including what broke and what it took to make the
+demos repeatable:
+
+**[Four MAI Capabilities, One Live App: Field Notes from Microsoft Foundry](https://www.linkedin.com/pulse/four-mai-capabilities-one-live-app-field-notes-from-foundry-piovano-fomse)**
+
+It describes tag [`v1.1.1`](https://github.com/ppiova/mai-foundry-demos/releases/tag/v1.1.1).
+
 ## What the user will see
 
 A quick preview of the experience presented by the demo app:

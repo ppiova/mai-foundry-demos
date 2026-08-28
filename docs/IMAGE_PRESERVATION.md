@@ -1,6 +1,6 @@
 # Measuring what the image edit preserved
 
-> Measured on 2026-08-27 against a live East US Foundry resource, using
+> Measured on 2026-08-28 against a live East US Foundry resource, using
 > `MAI-Image-2.5-Flash` for generation and `MAI-Image-2.5` for the edit.
 
 "Controlled editing" is easy to claim and easy to eyeball. This document records the

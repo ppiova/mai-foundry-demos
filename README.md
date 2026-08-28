@@ -161,6 +161,10 @@ assets/
 docs/
   API_VERIFIED.md          Verified API surface (with sources)
   PROMPTS.md               Every demo prompt, ready to copy/paste
+  IMAGE_PRESERVATION.md    What the image edit actually preserved, measured
+scripts/
+  live_smoke.py            Strict preflight against all four services
+  measure_preservation.py  Reproduces the numbers in IMAGE_PRESERVATION.md
 tests/                     Offline smoke tests (pytest, no credentials)
 infra/                     Bicep template to deploy the Foundry resource + model deployments
 .github/workflows/ci.yml   Lint (ruff) + offline tests on every push / PR

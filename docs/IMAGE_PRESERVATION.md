@@ -54,7 +54,7 @@ Two numbers per region:
 
 - **pixels**: the share of pixels whose summed RGB delta exceeds 24.
 - **structure**: the Pearson correlation of gradient magnitude between the two frames. It
-  survives a brightness or colour shift and collapses when the geometry underneath changes,
+  survives a brightness or color shift and collapses when the geometry underneath changes,
   which is what separates "the model repainted this" from "the model relit this".
 
 Structure needs texture to correlate. Regions whose mean gradient magnitude falls below 6

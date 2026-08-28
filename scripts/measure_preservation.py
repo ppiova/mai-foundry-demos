@@ -5,7 +5,7 @@ Run from the repository root (needs Pillow and NumPy, both installed with the ap
     python scripts/measure_preservation.py
 
 A naive pixel diff cannot tell "the model repainted this" from "the model relit this".
-Correlating gradient magnitude can: it survives a brightness or colour shift but collapses
+Correlating gradient magnitude can: it survives a brightness or color shift but collapses
 when the underlying geometry changes. It is only meaningful where there is texture to
 correlate, so flat regions are reported and left for visual inspection rather than scored.
 """

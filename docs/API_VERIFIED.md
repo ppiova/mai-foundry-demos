@@ -13,6 +13,12 @@ offline tests. It did **not** call live Azure endpoints. Empirical notes below a
 the original authorized AI CoE live validation on 2026-08-13 and are explicitly
 distinguished from the documentation-only review.
 
+Two later rounds of authorized live verification against an East US Foundry resource are
+recorded separately: the strict smoke script passed for all four service areas on
+2026-08-27, and the image generation and edit measured in
+[`IMAGE_PRESERVATION.md`](IMAGE_PRESERVATION.md) ran live on 2026-08-28. Neither round
+changed the documented contract below.
+
 ---
 
 ## 1. MAI-Thinking-1 (reasoning + function calling)

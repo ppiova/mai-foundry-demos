@@ -123,9 +123,12 @@ Chat, image, and speech can use separate configuration — which is why
 `MAI_FOUNDRY_*`, `MAI_IMAGE_*`, and `MAI_SPEECH_*` are configured independently. This
 also lets Image use a different resource when required by current regional availability.
 
-This hardening pass used current Microsoft Learn documentation and offline CI only;
-it did **not** call a live Azure endpoint. The repository includes an opt-in strict
-smoke script for authorized live verification. Full API details and sources:
+The 2026-08-25 hardening pass used current Microsoft Learn documentation and offline CI
+only; it did **not** call a live Azure endpoint. Live verification was run separately
+against an authorized East US Foundry resource: the strict smoke script passed for all
+four service areas on 2026-08-27, and the image generation and edit in
+[`docs/IMAGE_PRESERVATION.md`](docs/IMAGE_PRESERVATION.md) were measured live on
+2026-08-28. Full API details and sources:
 [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
 
 ## Notes on the MAI lineup (worth knowing)

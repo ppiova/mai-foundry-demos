@@ -207,6 +207,10 @@ mai/                       Shared client library
   client.py                MAIClient, pluggable LIVE + FALLBACK for all 4 families
   ssml.py                  SSML builder + style validation
   fallback.py              Deterministic offline stand-ins
+agents/                    Demo domain logic, independent of the UI
+  estate.py                The cloud estate and the two tools the model may call
+  plan.py                  Plan types, the deterministic validator, rendering
+  decision.py              The live tool-calling loop and the greedy fallback planner
 demos/                     One module per demo (each exposes render(client))
 assets/data/               cloud_estate.json, region_capacity.json (Thinking demo)
 docs/

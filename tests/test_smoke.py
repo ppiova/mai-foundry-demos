@@ -66,7 +66,7 @@ def test_thinking_fallback_plan(client):
 
 
 def test_estate_tools_enforce_constraints():
-    from demos.thinking_agent import CloudEstate
+    from agents import CloudEstate
 
     estate = CloudEstate()
     assert estate.get_region_capacity("eastus")["utilization_pct"] > 70

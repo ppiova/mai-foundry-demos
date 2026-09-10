@@ -5,8 +5,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from agents import CloudEstate, execute_tool_call, run_agent
 from demos.multimodal_campaign import Campaign, _parse_json, generate_brief
-from demos.thinking_agent import CloudEstate, execute_tool_call, run_agent
 from mai.client import MAIClient, audio_extension_for_mime
 from mai.config import Config
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from unittest.mock import Mock
 
-from demos.thinking_agent import CloudEstate, fallback_plan, run_agent
+from agents import CloudEstate, fallback_plan, run_agent
 from mai.config import Config
 
 

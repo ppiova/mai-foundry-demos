@@ -105,10 +105,16 @@ def main(client: MAIClient | None = None, allow_partial: bool = False) -> int:
     # ── Image: one small generation ────────────────────────────────────────────
     if cfg.image_ready:
         res = client.generate_image("A plain red circle on a white background.", 768, 768)
+        served = res.meta.get("model")
+        asked = res.meta.get("requested_model")
+        # A different deployment answering is a configuration failure, not a pass.
+        # In strict mode the client no longer swaps; this catches the demo-mode case
+        # and any future rung that starts substituting again.
         record(
             "Image generation",
-            res.is_live and bool(res.data),
-            f"-> {res.source}, {len(res.data or b'')} bytes, {res.elapsed:.1f}s",
+            res.is_live and bool(res.data) and served == asked,
+            f"-> {res.source}, {len(res.data or b'')} bytes, {res.elapsed:.1f}s, "
+            f"deployment {served!r}" + ("" if served == asked else f" (asked for {asked!r})"),
         )
     else:
         print("  [SKIP] Image (no MAI_IMAGE_* configured)")

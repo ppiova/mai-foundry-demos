@@ -34,8 +34,12 @@ This is demonstration code. Read this before pointing it at anything you care ab
 - **Keys are opt-in.** `MAI_AUTH_MODE=key` reads resource keys from the
   environment. `.env` is gitignored and must never be committed. Nothing in this
   repository writes a key to disk or logs one.
-- **No secret is ever printed.** Error text from failed calls is surfaced in the
-  UI; tokens and keys are not.
+- **No secret is printed, but error text is.** Tokens and keys never reach the UI.
+  The text of a failed call does, verbatim, so the presenter can see why a demo
+  degraded: that can include the endpoint and Entra diagnostic detail. The endpoint
+  is not a secret, it is a Bicep output the operator typed in, and burying the cause
+  of a fallback would make the on-stage story worse. Run this on a local or
+  otherwise trusted host, not on a shared one.
 - **Public network access.** The Bicep template sets `publicNetworkAccess: 'Enabled'`
   for a self-contained demo. Production deployments should use private endpoints.
 - **No content filtering configuration is included.** The deployed models use the

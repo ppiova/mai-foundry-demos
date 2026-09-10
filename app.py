@@ -52,7 +52,7 @@ def _auth_detail(keyless: bool, key: str) -> str:
     return "resource key" if key else "no credential"
 
 
-def sidebar(cfg):
+def sidebar(cfg, client=None):
     with st.sidebar:
         st.title("🧩 MAI Examples")
         st.caption(
@@ -100,6 +100,16 @@ def sidebar(cfg):
                 else "Copy `.env.example` to `.env` and add the endpoints and keys."
             )
             st.info(f"Nothing configured, so every demo runs in **FALLBACK** mode. {hint}")
+        # A token that failed to resolve is covered by a configured key, which keeps
+        # the demo alive but means the run is no longer keyless. Say so: believing
+        # you are exercising Entra when you are not is how the keyless path ships
+        # unverified.
+        if client is not None and getattr(client, "auth_fallback", None):
+            st.warning(
+                "A resource key is in use because no Entra token could be obtained. "
+                "The demos work, but this run is not exercising the keyless path."
+            )
+            st.caption(client.auth_fallback)
         st.caption(
             "Tip: rehearse in fallback, then `az login` for the live run."
             if cfg.keyless_enabled
@@ -110,7 +120,7 @@ def sidebar(cfg):
 def main():
     cfg = get_config()
     client = get_client()
-    sidebar(cfg)
+    sidebar(cfg, client)
 
     st.title("MAI Examples")
     st.caption(

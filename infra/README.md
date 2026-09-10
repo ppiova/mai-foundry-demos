@@ -16,7 +16,9 @@ calls them through this same account's Speech endpoints. See
 # 1. Create (or pick) a resource group after checking current model availability.
 az group create --name rg-mai-examples --location eastus
 
-# 2. Edit main.bicepparam — accountName must be globally unique.
+# 2. Edit main.bicepparam (accountName must be globally unique) and set
+#    principalId to whoever will call the models:
+#      az ad signed-in-user show --query id -o tsv
 
 # 3. Deploy.
 az deployment group create \
@@ -26,6 +28,26 @@ az deployment group create \
 ```
 
 Each model deployment is created in sequence; actual deployment duration varies.
+
+## Access model
+
+The template deploys **keyless by default**: `disableLocalAuth` is `true`, so the
+account issues no usable keys and Microsoft Entra ID is the only way in. Access
+comes from two role assignments on the account, scoped to `principalId`:
+
+| Role | Grants |
+|---|---|
+| `Cognitive Services User` | MAI-Thinking-1 and the MAI image APIs |
+| `Cognitive Services Speech User` | MAI-Transcribe-1.5 and MAI-Voice-2 |
+
+`customSubDomainName` is set because the Speech APIs reject Entra tokens on
+regional endpoints. That property cannot be changed after creation.
+
+Role assignments can take up to five minutes to propagate. If the app reports
+FALLBACK right after deployment, wait and retry before assuming a misconfiguration.
+
+To use keys instead, deploy with `disableLocalAuth = false` and set
+`MAI_AUTH_MODE=key`.
 
 ## Region constraints
 
@@ -49,24 +71,24 @@ endpoint verification was performed for PR #4.
 
 ## After deploying: fill in `.env`
 
-The deployment outputs the endpoints; you still need to fetch keys separately
-(Bicep never outputs secrets):
+Keyless needs no secret at all, only endpoints. Copy `.env.example` to `.env` from
+the repo root and fill it from the deployment outputs:
+
+| Output | `.env` variable |
+|---|---|
+| `foundryEndpoint` | `MAI_FOUNDRY_ENDPOINT`, `MAI_IMAGE_ENDPOINT` |
+| `speechEndpoint` | `MAI_SPEECH_ENDPOINT` |
+| `speechResourceId` | `MAI_SPEECH_RESOURCE_ID` (keyless MAI-Voice-2 only) |
+
+All of them can point at the **same** account. Then sign in locally:
 
 ```bash
-az cognitiveservices account keys list \
-  --name <accountName> --resource-group rg-mai-examples \
-  --query key1 -o tsv
+az login
 ```
 
-Then, from the repo root:
-
-```bash
-copy .env.example .env
-```
-
-and fill in `MAI_FOUNDRY_ENDPOINT` / `MAI_FOUNDRY_API_KEY` (and `MAI_IMAGE_*`,
-`MAI_SPEECH_*`) with the `foundryEndpoint` / `speechEndpoint` outputs and the
-key above. All four can point at the **same** account.
+`MAI_*_API_KEY` and `MAI_SPEECH_KEY` stay empty. They are read only when
+`MAI_AUTH_MODE=key`, which needs an account deployed with
+`disableLocalAuth = false`.
 
 ## Tear down
 

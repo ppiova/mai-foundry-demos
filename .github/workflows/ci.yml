@@ -5,16 +5,28 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor documented in the README, and the version most contributors
+        # actually have installed. A break in either is a break worth seeing.
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install dependencies
+        # Deliberately unpinned: requirements.txt keeps ranges so an incompatible
+        # upstream release surfaces here rather than during a live demo.
+        # constraints.txt is for reproducing a presented run, not for CI.
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -25,3 +37,26 @@ jobs:
         run: ruff format --check .
       - name: Tests (offline / fallback mode)
         run: pytest
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Microsoft Security DevOps
+        uses: microsoft/security-devops-action@v1
+        id: msdo
+        with:
+          # Credential scanning plus infrastructure-as-code analysis: the two that
+          # matter for a sample whose whole point is that it holds no secrets.
+          tools: credscan,templateanalyzer
+      - name: Upload results to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.msdo.outputs.sarifFile }}

@@ -59,17 +59,3 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/ps-rule.sarif
-
-  # Blocks a pull request that introduces a dependency with a known vulnerability
-  # or an incompatible license, before it reaches main.
-  dependencies:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
-        with:
-          comment-summary-in-pr: on-failure

@@ -1,8 +1,22 @@
-# Core runtime
-streamlit>=1.36
-requests>=2.31
-python-dotenv>=1.0
-Pillow>=10.0
+# Core runtime.
+#
+# Upper bounds are deliberate: this app is demonstrated live, and a major release
+# arriving the morning of a talk is not a risk worth carrying. CI installs these
+# ranges unpinned on purpose, so an incompatible upstream release shows up as a
+# failing build rather than as a surprise on stage.
+#
+# For a rehearsed or presented run, install the exact versions that were verified:
+#     pip install -r requirements.txt -c constraints.txt
+streamlit>=1.36,<2
+requests>=2.31,<3
+python-dotenv>=1.0,<2
+Pillow>=10.0,<13
+
+# Keyless authentication with Microsoft Entra ID (MAI_AUTH_MODE=entra, the
+# default). DefaultAzureCredential resolves the managed identity in Azure and the
+# developer's az login locally. Without this package the app falls back to
+# resource keys, so it stays installable, just not keyless.
+azure-identity>=1.19,<2
 
 # Optional: audible offline fallback for the Voice demo (OS TTS / SAPI5 on Windows).
 # Install it yourself if you want the offline fallback to actually play audio:

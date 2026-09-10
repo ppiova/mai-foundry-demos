@@ -4,6 +4,8 @@ Design goals (per the presentation requirement "must not fail live on stage"):
 
 * If credentials are configured, call the REAL API exactly as documented in
   docs/API_VERIFIED.md.
+* Authenticate keyless by default, with Microsoft Entra ID and Azure RBAC.
+  Resource keys stay supported through ``MAI_AUTH_MODE=key``. See ``mai/auth.py``.
 * In default ``demo`` mode, missing credentials or a live failure degrade to a
   deterministic FALLBACK. In ``strict`` mode they raise.
 * Every result carries ``source`` ("live" | "fallback") so the UI can badge it.
@@ -23,8 +25,12 @@ from typing import Any
 import requests
 
 from . import fallback
+from .auth import FOUNDRY_SCOPE, SPEECH_SCOPE, EntraUnavailableError, TokenProvider
 from .config import Config, get_config
 from .ssml import build_ssml
+
+# The text to speech REST API documents User-Agent as a required header.
+USER_AGENT = "mai-foundry-demos"
 
 
 class MAIStreamError(RuntimeError):
@@ -63,8 +69,53 @@ class MAIResult:
 
 
 class MAIClient:
-    def __init__(self, cfg: Config | None = None):
+    def __init__(self, cfg: Config | None = None, tokens: TokenProvider | None = None):
         self.cfg = cfg or get_config()
+        self.tokens = tokens or TokenProvider()
+
+    # ── authentication headers ─────────────────────────────────────────────────
+    # Keyless is preferred wherever it can work. When no identity resolves, a
+    # configured key still takes over: the alternative is losing a demo to an
+    # expired az login with a valid key sitting in .env. With no key to fall back
+    # on, EntraUnavailableError propagates and is handled like any other live
+    # failure: FALLBACK in demo mode, raised in strict mode.
+    def _entra_or_key(self, header: str, key: str, value) -> dict[str, str]:
+        try:
+            return {"Authorization": value()}
+        except EntraUnavailableError:
+            if not key:
+                raise
+            return {header: key}
+
+    def _foundry_auth(self, api_key: str) -> dict[str, str]:
+        """Auth header for a Foundry model deployment (chat and image)."""
+        if not self.cfg.keyless_enabled:
+            return {"api-key": api_key}
+        return self._entra_or_key("api-key", api_key, lambda: self.tokens.bearer(FOUNDRY_SCOPE))
+
+    def _speech_auth(self) -> dict[str, str]:
+        """Auth header for the Speech transcription API."""
+        if not self.cfg.transcribe_keyless:
+            return {"Ocp-Apim-Subscription-Key": self.cfg.speech_key}
+        return self._entra_or_key(
+            "Ocp-Apim-Subscription-Key",
+            self.cfg.speech_key,
+            lambda: self.tokens.bearer(SPEECH_SCOPE),
+        )
+
+    def _tts_auth(self) -> dict[str, str]:
+        """Auth header for the ``cognitiveservices/v1`` text to speech path.
+
+        That path does not accept a bare Entra token; it takes the resource ID
+        and the token combined (see ``TokenProvider.speech_bearer``).
+        """
+        if not self.cfg.voice_keyless:
+            return {"Ocp-Apim-Subscription-Key": self.cfg.speech_key}
+        return self._entra_or_key(
+            "Ocp-Apim-Subscription-Key",
+            self.cfg.speech_key,
+            lambda: self.tokens.speech_bearer(self.cfg.speech_resource_id),
+        )
 
     # ── Thinking-1 (raw chat; the tool loop lives in demos/thinking_agent.py) ──
     def thinking_ready(self) -> bool:
@@ -111,7 +162,10 @@ class MAIClient:
             raise RuntimeError("Thinking service is not configured")
         resp = requests.post(
             self.cfg.chat_url,
-            headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
+            headers={
+                "Content-Type": "application/json",
+                **self._foundry_auth(self.cfg.foundry_api_key),
+            },
             json=self._chat_payload(messages, tools, max_completion_tokens, reasoning_display),
             timeout=self.cfg.thinking_timeout,
         )
@@ -151,7 +205,10 @@ class MAIClient:
         event_type: str | None = None
         with requests.post(
             self.cfg.chat_url,
-            headers={"Content-Type": "application/json", "api-key": self.cfg.foundry_api_key},
+            headers={
+                "Content-Type": "application/json",
+                **self._foundry_auth(self.cfg.foundry_api_key),
+            },
             json=payload,
             timeout=self.cfg.thinking_timeout,
             stream=True,
@@ -255,7 +312,7 @@ class MAIClient:
             try:
                 resp = requests.post(
                     self.cfg.image_url("edits"),
-                    headers={"api-key": self.cfg.image_api_key},
+                    headers=self._foundry_auth(self.cfg.image_api_key),
                     data={"model": self.cfg.image_edit_deployment, "prompt": prompt},
                     files={"image": (filename, image_bytes, mime)},
                     timeout=self.cfg.image_timeout,
@@ -316,7 +373,7 @@ class MAIClient:
                         self.cfg.image_url("generations"),
                         headers={
                             "Content-Type": "application/json",
-                            "api-key": self.cfg.image_api_key,
+                            **self._foundry_auth(self.cfg.image_api_key),
                         },
                         json=payload,
                         timeout=self.cfg.image_timeout,
@@ -382,7 +439,7 @@ class MAIClient:
             try:
                 resp = requests.post(
                     self.cfg.transcribe_url,
-                    headers={"Ocp-Apim-Subscription-Key": self.cfg.speech_key},
+                    headers=self._speech_auth(),
                     files={"audio": (filename, audio_bytes, audio_mime)},
                     data={"definition": json.dumps(definition)},
                     timeout=self.cfg.transcribe_timeout,
@@ -440,7 +497,8 @@ class MAIClient:
                     headers={
                         "Content-Type": "application/ssml+xml",
                         "X-Microsoft-OutputFormat": "audio-24khz-160kbitrate-mono-mp3",
-                        "Ocp-Apim-Subscription-Key": self.cfg.speech_key,
+                        "User-Agent": USER_AGENT,
+                        **self._tts_auth(),
                     },
                     data=ssml.encode("utf-8"),
                     timeout=self.cfg.voice_timeout,

@@ -1,0 +1,15 @@
+# Exact versions this project was last verified with, on 2026-09-10.
+#
+# requirements.txt keeps version ranges so CI notices upstream breakage early.
+# This file is the opposite trade: pin everything, so a run that matters is
+# reproducible and cannot be changed by a release published in the meantime.
+#
+#     pip install -r requirements.txt -c constraints.txt
+#
+# Only the direct dependencies are pinned. Refresh them deliberately, then re-run
+# the offline suite and scripts/live_smoke.py before relying on the result.
+streamlit==1.62.0
+requests==2.34.2
+python-dotenv==1.2.3
+Pillow==12.3.0
+azure-identity==1.25.3

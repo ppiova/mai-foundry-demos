@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ppiova/mai-foundry-demos/security/advisories/new
+    about: Report privately. Never in a public issue.
+  - name: Microsoft Foundry documentation
+    url: https://learn.microsoft.com/azure/ai-foundry/
+    about: Questions about the services themselves, rather than this sample.

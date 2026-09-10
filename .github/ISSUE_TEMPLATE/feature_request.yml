@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest a change to the sample.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a demo repository: each demo exists to make one point in a few
+        minutes. Proposals that keep it short have the best chance.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered

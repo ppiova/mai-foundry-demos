@@ -1,8 +1,9 @@
 """MAI Examples — a Streamlit app of short, focused demos for the MAI stack.
 
 Run:  streamlit run app.py
-Each demo illustrates one focused capability and runs LIVE (with keys in .env)
-or in FALLBACK mode (no keys), degrading per-call if a live request fails.
+Each demo illustrates one focused capability and runs LIVE (endpoints in .env,
+plus an Entra identity or a key) or in FALLBACK mode, degrading per-call if a
+live request fails.
 """
 
 from __future__ import annotations
@@ -36,8 +37,19 @@ def get_client() -> MAIClient:
 
 
 def _status_row(label: str, ready: bool, detail: str):
-    st.markdown(f"{'🟢' if ready else '🟡'} **{label}** — {'LIVE' if ready else 'FALLBACK'}")
+    # "configured" rather than "working": readiness is a check on what is set,
+    # not a token acquisition (mai/auth.py deliberately makes no network call at
+    # import). Only the badge on an actual result can say a call went live.
+    state = "configured for LIVE" if ready else "FALLBACK"
+    st.markdown(f"{'🟢' if ready else '🟡'} **{label}** · {state}")
     st.caption(detail)
+
+
+def _auth_detail(keyless: bool, key: str) -> str:
+    """How this service will authenticate, given what is configured."""
+    if keyless:
+        return "Entra ID"
+    return "resource key" if key else "no credential"
 
 
 def sidebar(cfg):
@@ -51,31 +63,48 @@ def sidebar(cfg):
         _status_row(
             "Thinking-1",
             cfg.foundry_ready,
-            f"Foundry endpoint {'set' if cfg.foundry_endpoint else 'missing'} · deploy `{cfg.thinking_deployment}`",
+            f"Endpoint {'set' if cfg.foundry_endpoint else 'missing'}"
+            f" · {_auth_detail(cfg.keyless_enabled, cfg.foundry_api_key)}"
+            f" · deploy `{cfg.thinking_deployment}`",
         )
         _status_row(
             "Image-2.5 / Flash",
             cfg.image_ready,
-            "dedicated image endpoint set"
+            f"Dedicated image endpoint set · {_auth_detail(cfg.keyless_enabled, cfg.image_api_key)}"
             if cfg.image_endpoint
-            else "set MAI_IMAGE_ENDPOINT to a supported-region resource",
+            else "Set MAI_IMAGE_ENDPOINT to a supported-region resource",
         )
         _status_row(
             "Transcribe-1.5",
             cfg.transcribe_ready,
-            f"Speech endpoint {'set' if cfg.speech_endpoint else 'missing'} · `{cfg.transcribe_model}`",
+            f"Speech endpoint {'set' if cfg.speech_endpoint else 'missing'}"
+            f" · {_auth_detail(cfg.transcribe_keyless, cfg.speech_key)}"
+            f" · `{cfg.transcribe_model}`",
         )
-        _status_row(
-            "Voice-2 (TTS)",
-            cfg.speech_ready,
-            f"Region `{cfg.speech_region}` · key {'set' if cfg.speech_key else 'missing'}",
-        )
+        # Voice is the one service whose keyless path needs more than an endpoint,
+        # so say which prerequisite is missing rather than just reporting FALLBACK.
+        if cfg.voice_keyless:
+            voice_detail = "Resource endpoint · Entra ID + resource ID"
+        elif cfg.speech_key:
+            voice_detail = f"Region `{cfg.speech_region}` · resource key"
+        elif cfg.keyless_enabled:
+            voice_detail = "Keyless TTS also needs MAI_SPEECH_RESOURCE_ID"
+        else:
+            voice_detail = "No credential"
+        _status_row("Voice-2 (TTS)", cfg.speech_ready, voice_detail)
         st.divider()
         if not cfg.any_service_ready:
-            st.info(
-                "No keys detected — running fully in **FALLBACK** mode. Copy `.env.example` to `.env` and add keys to go LIVE."
+            hint = (
+                "Copy `.env.example` to `.env`, add the endpoints, and run `az login`."
+                if cfg.keyless_enabled
+                else "Copy `.env.example` to `.env` and add the endpoints and keys."
             )
-        st.caption("Tip: rehearse in fallback, then flip keys on for the live run.")
+            st.info(f"Nothing configured, so every demo runs in **FALLBACK** mode. {hint}")
+        st.caption(
+            "Tip: rehearse in fallback, then `az login` for the live run."
+            if cfg.keyless_enabled
+            else "Tip: rehearse in fallback, then set the keys for the live run."
+        )
 
 
 def main():

@@ -13,6 +13,8 @@ import streamlit as st
 
 from mai import MAIClient
 
+from . import _notices as notices
+
 BASE_IMAGE = Path(__file__).resolve().parent.parent / "assets" / "images" / "contoso_hydrate.png"
 
 DEFAULT_PROMPT = (
@@ -53,8 +55,9 @@ FUN_PROMPTS = [
     ),
     ("🖼️ BA watercolor", "A vibrant vintage watercolor travel poster of Buenos Aires at dusk."),
     (
-        "🌃 Cyberpunk street",
-        "A cyberpunk city street in the rain, neon reflections, blade-runner mood.",
+        "🌃 Neon street",
+        "A rain-soaked city street at night, neon reflections on wet asphalt, "
+        "moody cinematic lighting.",
     ),
     (
         "🔤 Neon 'MAI LIVE'",
@@ -153,6 +156,7 @@ def render(client: MAIClient) -> None:
         left.image(src_bytes, width="stretch")
         right.markdown("**Edited**")
         right.image(result.data, width="stretch")
+        notices.ai_generated()
         st.download_button(
             "Download edited PNG",
             result.data,
@@ -168,7 +172,9 @@ def render(client: MAIClient) -> None:
 
     st.session_state.setdefault("gen_prompt", FUN_PROMPTS[0][1])
     with st.expander("🎲 Fun example prompts (click to load)"):
-        st.caption("Tip: for the text-in-image ones, swap the quoted word for the event or a name.")
+        st.caption(
+            "Tip: for the text-in-image ones, swap the quoted word for the event name or your own."
+        )
         cols = st.columns(2)
         for i, (label, ptext) in enumerate(FUN_PROMPTS):
             cols[i % 2].button(
@@ -181,6 +187,7 @@ def render(client: MAIClient) -> None:
     gen_prompt = st.text_area(
         "Prompt", key="gen_prompt", height=90, placeholder="Describe anything you want to generate…"
     )
+    notices.image_prompt_caution()
     gc1, gc2, gc3 = st.columns([1.6, 1, 1])
     gen_model = gc1.selectbox(
         "Model",
@@ -209,6 +216,7 @@ def render(client: MAIClient) -> None:
             if gres.error:
                 st.warning(f"Live call failed → mock shown. Detail: {gres.error}")
             st.image(gres.data, width="stretch", caption=gen_prompt.strip())
+            notices.ai_generated()
             st.download_button(
                 "Download PNG", gres.data, file_name="generated.png", mime="image/png", key="gen_dl"
             )

@@ -16,6 +16,8 @@ import streamlit as st
 
 from mai import DEMO_VOICES, VOICE_PRESETS, VOICES, MAIClient
 
+from . import _notices as notices
+
 SAMPLE_EN = (
     "I found the problem with your order. The replacement has already been "
     "shipped and will arrive tomorrow."
@@ -35,6 +37,7 @@ def _play(client: MAIClient, text: str, voice: str, style: str | None, degree: f
         st.warning(f"Live call failed → offline TTS. Detail: {res.error}")
     if res.data:
         st.audio(res.data, format=res.meta.get("mime", "audio/mp3"))
+        notices.synthetic_voice()
     else:
         st.info(
             "No audio produced offline (install pyttsx3 for audible fallback). SSML below is still valid for LIVE."

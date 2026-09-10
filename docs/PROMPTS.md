@@ -103,7 +103,7 @@ quality, Flash for speed):
 - A tiny robot barista making latte art, macro shot, shallow depth of field.
 - A cat in a spacesuit floating inside a space station, dramatic cinematic lighting.
 - Isometric 3D cutaway of a cozy coffee shop, warm lighting, cute miniature style.
-- A cyberpunk city street in the rain, neon reflections, blade-runner mood.
+- A rain-soaked city street at night, neon reflections on wet asphalt, moody cinematic lighting.
 - A glowing neon sign that reads "MAI LIVE" on a brick wall at night, bokeh.
 
 Tip: for the text-in-image prompts (`"MAI LIVE"`, `"FOUNDRY"`, …), swap in the event

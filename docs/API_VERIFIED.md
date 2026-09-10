@@ -172,13 +172,39 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/us
       }
     }
     ```
-  - `phraseList` provides entity biasing in `mai-transcribe-1.5`.
-  - `transcribeStyle`: defaults to readability-optimized; `"verbatim"` preserves filler
-    words and disfluencies.
+  - `phraseList` provides entity biasing.
   - Omit `locales` → automatic multilingual mode.
-- **Not supported:** diarization, prompt-tuning.
-- **Model used here:** `mai-transcribe-1.5`. Check the linked page for current model
-  lifecycle information.
+- **Model lineup (Learn, 2026-09-10):** `MAI-Transcribe-2`, `MAI-Transcribe-1.5`, and
+  `MAI-Transcribe-1`, **deprecated on 2026-08-20**. The article is now titled after
+  Transcribe-2. This repo still targets `mai-transcribe-1.5`, which is the version its
+  live runs were measured against; moving to Transcribe-2 is a deliberate change, not a
+  default.
+
+### ⚠️ Drift found on 2026-09-10, not yet reconciled with a live run
+
+Re-reading the source page against this file turned up three differences. They are
+recorded here rather than silently corrected in code, because this repo's rule is that a
+claim is only "verified" when a live run says so.
+
+| Item | What this file used to say | What Learn says now |
+| --- | --- | --- |
+| Diarization | "Not supported" | Supported via `diarization.enabled`. Requests fail at roughly 15 minutes and longer in preview (408, or 500/503 `diarization_unavailable`) |
+| `transcribeStyle` default | Readability-optimized, with `verbatim` as the opt-in | **`verbatim` is the default**, and `clean` is the readability-optimized value |
+| `transcribeStyle` path | Flat, `enhancedMode.transcribeStyle` | Nested, `enhancedMode.modelOptions.transcribeStyle`, alongside `modelOptions.timestamps` |
+
+`mai/client.py` sends the **flat** form, and that is what the 2026-08-27 strict smoke run
+exercised successfully against a `mai-transcribe-1.5` deployment. The nested form is
+documented for Transcribe-2. Both can be true: the parameter may have moved with the new
+generation. Do not "fix" the path without a live run that proves it.
+
+The inverted default matters more. The client omits `transcribeStyle` unless the demo's
+verbatim toggle is on, which assumed that omitting it meant readability-optimized. If the
+default really is `verbatim`, then that toggle changes nothing and the demo's baseline is
+already verbatim. Sending `clean` explicitly when the toggle is off would make the intent
+unambiguous, but whether `mai-transcribe-1.5` accepts `clean` is unverified. **Resolve
+both with one strict smoke run before the next talk**, then update this section.
+
+- **Not supported:** prompt-tuning.
 - **Response:** fast-transcription format; text usually appears in `combinedPhrases[].text`
   (the code parses several shapes defensively).
 

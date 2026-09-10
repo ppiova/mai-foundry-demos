@@ -1,23 +1,30 @@
 # PSRule for Azure configuration.
 #
-# Analyzes infra/main.bicep against the Azure Well-Architected rules on every push
-# and pull request. See .github/workflows/ci.yml.
+# Analyzes the Bicep infrastructure against the Azure Well-Architected rules on
+# every push and pull request. See .github/workflows/ci.yml.
 
 configuration:
-  # Required to analyze .bicep sources rather than compiled ARM JSON.
+  # Required to analyze Bicep sources rather than compiled ARM JSON.
   AZURE_BICEP_FILE_EXPANSION: true
+  AZURE_BICEP_PARAM_FILE_EXPANSION: true
   AZURE_BICEP_FILE_EXPANSION_TIMEOUT: 15
 
 input:
   pathIgnore:
     - "**/*.md"
+    # The template is analyzed through main.bicepparam, not on its own.
+    # accountName deliberately has no default, because it becomes a globally
+    # unique custom subdomain, so expanding the template alone cannot resolve it.
+    # Going through the parameter file also analyzes the shape that actually
+    # deploys, which is the more useful check anyway.
+    - "infra/main.bicep"
 
 rule:
   exclude:
-    # This sample is run locally by a presenter against a resource they deploy for a
-    # talk, so the account has to be reachable from the public internet. Private
-    # endpoints and service endpoints would require a virtual network and would break
-    # the one thing the sample exists to do.
+    # This sample is run locally by a presenter against a resource they deploy for
+    # a talk, so the account has to be reachable from the public internet. Private
+    # endpoints and service endpoints would require a virtual network and would
+    # break the one thing the sample exists to do.
     #
     # This is a deliberate, documented exception, not an oversight. The README's
     # Important Security Notice and SECURITY.md both state that production
@@ -25,8 +32,14 @@ rule:
     # publicNetworkAccess so it can be changed in one place.
     #
     # Everything these rules exist to protect is still addressed by other means:
-    # the account deploys with disableLocalAuth = true, so there are no keys to
-    # steal, and access is governed by two scoped RBAC role assignments.
+    # the account deploys with disableLocalAuth = true, so there is no key to
+    # steal, and access is governed by two scoped RBAC role assignments. The
+    # Azure.AI.DisableLocalAuth rule passes for exactly that reason.
+    #
+    # Both the current names and the legacy Azure.Cognitive aliases are listed,
+    # so a future alias removal does not silently re-break the build.
+    - Azure.AI.PublicAccess
+    - Azure.AI.PrivateEndpoints
     - Azure.Cognitive.PublicAccess
     - Azure.Cognitive.PrivateEndpoints
 

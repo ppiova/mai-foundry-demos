@@ -56,14 +56,19 @@ Every push and pull request runs:
 | Check | Covers |
 |---|---|
 | CodeQL (`security-and-quality`) | Static analysis of the Python source, weekly as well as per change |
-| PSRule for Azure | `infra/main.bicep` against the Azure Well-Architected rules |
-| Dependency review | New dependencies with known vulnerabilities or incompatible licenses |
-| Dependabot | Weekly updates for pip and GitHub Actions |
+| PSRule for Azure | The Bicep infrastructure against the Azure Well-Architected rules |
+| Dependabot | Weekly version updates for pip and GitHub Actions |
+| Secret scanning with push protection | The full history, and any push containing a recognized secret |
 
-Credential scanning is GitHub secret scanning with push protection, which scans the
-full history and blocks a push containing a recognized secret. It is a repository
-setting rather than a workflow, so confirm it is enabled under Settings, Code
-security.
+Secret scanning and push protection are repository settings rather than workflows,
+and both are enabled.
+
+Two settings are not yet enabled, and each unlocks a further check:
+
+- **Dependency graph**, which `actions/dependency-review-action` needs to block a
+  pull request that introduces a vulnerable or incompatibly licensed dependency.
+- **Dependabot security updates**, which opens a pull request when an advisory
+  affects a dependency in use, separate from the weekly version updates.
 
 `ps-rule.yaml` excludes two rules, `Azure.Cognitive.PublicAccess` and
 `Azure.Cognitive.PrivateEndpoints`, with the reasoning recorded in that file. A

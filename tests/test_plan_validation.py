@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import json
 
-from demos.thinking_agent import (
+from agents import (
     CloudEstate,
     MigrationPlan,
-    _finish_live,
     extract_structured_plan,
     fallback_plan,
     validate_plan,
 )
+from agents.decision import _finish_live
 
 
 def _estate() -> CloudEstate:
@@ -290,8 +290,6 @@ def test_falsy_malformed_plan_is_not_normalised_away():
     Reading it with `or []` would turn the malformed value into an empty list and
     let the plan report ok, bypassing the guard entirely.
     """
-    from demos.thinking_agent import _finish_live
-
     estate = _estate()
     answer = (
         "Plan.\n\n```json\n"
@@ -308,8 +306,6 @@ def test_falsy_malformed_plan_is_not_normalised_away():
 
 def test_absent_keys_still_default_cleanly():
     """Omitting a key is legitimate — only present-but-malformed values must fail."""
-    from demos.thinking_agent import _finish_live
-
     estate = _estate()
     answer = '```json\n{"moves": [{"app": "catalog-svc", "target_region": "southindia"}]}\n```'
     run = _finish_live(estate, answer, [], 0.0, {})

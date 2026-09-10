@@ -117,7 +117,7 @@ class MAIClient:
             lambda: self.tokens.speech_bearer(self.cfg.speech_resource_id),
         )
 
-    # ── Thinking-1 (raw chat; the tool loop lives in demos/thinking_agent.py) ──
+    # ── Thinking-1 (raw chat; the tool loop lives in agents/decision.py) ──
     def thinking_ready(self) -> bool:
         return self.cfg.foundry_ready
 

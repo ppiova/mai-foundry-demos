@@ -49,13 +49,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: Analyze Bicep with PSRule for Azure
         uses: microsoft/ps-rule@v2.9.0
+        # The upload below is skipped for forks, so a rule failure has to surface
+        # as a failing step rather than only as a code-scanning alert nobody gets.
+        continue-on-error: false
         with:
           modules: PSRule.Rules.Azure
           inputPath: infra/
           outputFormat: Sarif
           outputPath: reports/ps-rule.sarif
+      # A pull request from a fork gets a read-only token, so uploading SARIF fails
+      # there no matter what permissions this job asks for. Skipping it keeps a
+      # first-time contributor from seeing a red check they cannot fix. The
+      # expression is used rather than a hardcoded repository name on purpose:
+      # hardcoding one silently disables the upload the moment the repo is renamed
+      # or transferred, which is exactly what is planned here.
       - name: Upload results to code scanning
-        if: always()
+        if: >-
+          always() &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: reports/ps-rule.sarif

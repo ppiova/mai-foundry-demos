@@ -206,3 +206,21 @@ def test_keyless_requests_carry_no_key_header(entra, monkeypatch):
     assert headers["Authorization"].startswith("Bearer ")
     assert "api-key" not in headers
     assert "unused-key" not in str(headers)
+
+
+# ── the key rescue must leave a trace ────────────────────────────────────────
+def test_a_key_rescue_is_recorded_on_the_client(entra):
+    """Believing you are exercising Entra when you are not is how it ships unverified."""
+    cfg = Config(auth_mode="entra", foundry_endpoint="https://r.services.ai.azure.com")
+    client, _ = _client(cfg, credential=_FailingCredential())
+    assert client.auth_fallback is None
+    client._foundry_auth("fallback-key")
+    assert client.auth_fallback is not None
+    assert "az login" in client.auth_fallback
+
+
+def test_a_successful_token_leaves_no_trace(entra):
+    cfg = Config(auth_mode="entra", foundry_endpoint="https://r.services.ai.azure.com")
+    client, _ = _client(cfg)
+    client._foundry_auth("unused-key")
+    assert client.auth_fallback is None

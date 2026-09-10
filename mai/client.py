@@ -72,6 +72,10 @@ class MAIClient:
     def __init__(self, cfg: Config | None = None, tokens: TokenProvider | None = None):
         self.cfg = cfg or get_config()
         self.tokens = tokens or TokenProvider()
+        # Set when a token could not be obtained and a configured key took over.
+        # Without this the substitution is invisible, and someone who believes they
+        # are running keyless has no way to find out that they are not.
+        self.auth_fallback: str | None = None
 
     # ── authentication headers ─────────────────────────────────────────────────
     # Keyless is preferred wherever it can work. When no identity resolves, a
@@ -82,9 +86,10 @@ class MAIClient:
     def _entra_or_key(self, header: str, key: str, value) -> dict[str, str]:
         try:
             return {"Authorization": value()}
-        except EntraUnavailableError:
+        except EntraUnavailableError as exc:
             if not key:
                 raise
+            self.auth_fallback = str(exc)
             return {header: key}
 
     def _foundry_auth(self, api_key: str) -> dict[str, str]:
@@ -161,7 +166,7 @@ class MAIClient:
         if not self.cfg.foundry_ready:
             raise RuntimeError("Thinking service is not configured")
         resp = requests.post(
-            self.cfg.chat_url,
+            _require_https(self.cfg.chat_url),
             headers={
                 "Content-Type": "application/json",
                 **self._foundry_auth(self.cfg.foundry_api_key),
@@ -204,7 +209,7 @@ class MAIClient:
         stats: dict[str, Any] = {}
         event_type: str | None = None
         with requests.post(
-            self.cfg.chat_url,
+            _require_https(self.cfg.chat_url),
             headers={
                 "Content-Type": "application/json",
                 **self._foundry_auth(self.cfg.foundry_api_key),
@@ -308,10 +313,15 @@ class MAIClient:
         self, image_bytes: bytes, prompt: str, filename: str = "input.png", mime: str = "image/png"
     ) -> MAIResult:
         t0 = time.time()
+        # Validated before the readiness check, like transcribe: a file that is not an
+        # image cannot be edited by either path. Without this the live call fails, the
+        # except degrades to the fallback, and the fallback raises UnidentifiedImageError
+        # out of the client because it opens the same bytes with PIL.
+        mime = _validate_image(image_bytes, mime)
         if self.cfg.image_ready:
             try:
                 resp = requests.post(
-                    self.cfg.image_url("edits"),
+                    _require_https(self.cfg.image_url("edits")),
                     headers=self._foundry_auth(self.cfg.image_api_key),
                     data={"model": self.cfg.image_edit_deployment, "prompt": prompt},
                     files={"image": (filename, image_bytes, mime)},
@@ -355,6 +365,13 @@ class MAIClient:
         On a live error, walk a short fallback ladder before giving up to the
         deterministic mock: retry at 768x768 (handles size limits), then retry on the
         base edit deployment (handles a missing/unavailable deployment).
+
+        The deployment swap is disabled in strict mode. Strict exists so a preflight
+        check fails on a broken configuration, and quietly answering with a different
+        deployment than the one asked for is exactly the failure it is meant to catch:
+        scripts/live_smoke.py would report PASS for a generation deployment that does
+        not exist. The 768x768 rung stays, because that corrects the request rather
+        than the target.
         """
         t0 = time.time()
         deployment = deployment or self.cfg.image_gen_deployment
@@ -370,7 +387,7 @@ class MAIClient:
                 seen.add(key)
                 try:
                     resp = requests.post(
-                        self.cfg.image_url("generations"),
+                        _require_https(self.cfg.image_url("generations")),
                         headers={
                             "Content-Type": "application/json",
                             **self._foundry_auth(self.cfg.image_api_key),
@@ -383,12 +400,21 @@ class MAIClient:
                     return MAIResult(
                         "live",
                         png,
-                        {"prompt": prompt, "model": payload["model"]},
+                        {
+                            "prompt": prompt,
+                            "model": payload["model"],
+                            "requested_model": deployment,
+                        },
                         elapsed=time.time() - t0,
                     )
                 except Exception as exc:
                     last_error = exc
-                    retry = _next_image_attempt(exc, payload, self.cfg.image_edit_deployment)
+                    retry = _next_image_attempt(
+                        exc,
+                        payload,
+                        self.cfg.image_edit_deployment,
+                        allow_deployment_swap=not self.cfg.strict,
+                    )
                     if retry and (retry["model"], retry["width"], retry["height"]) not in seen:
                         attempts.append(retry)
                         continue
@@ -401,7 +427,7 @@ class MAIClient:
             return MAIResult(
                 "fallback",
                 png,
-                {"prompt": prompt, "model": deployment},
+                {"prompt": prompt, "model": deployment, "requested_model": deployment},
                 error=str(last_error or "image request failed"),
                 elapsed=time.time() - t0,
             )
@@ -410,7 +436,10 @@ class MAIClient:
             raise RuntimeError("Image service is not configured")
         png = fallback.generate_image(prompt, width, height)
         return MAIResult(
-            "fallback", png, {"prompt": prompt, "model": deployment}, elapsed=time.time() - t0
+            "fallback",
+            png,
+            {"prompt": prompt, "model": deployment, "requested_model": deployment},
+            elapsed=time.time() - t0,
         )
 
     # ── Transcribe-1.5 ──────────────────────────────────────────────────────────
@@ -443,7 +472,7 @@ class MAIClient:
         if self.cfg.transcribe_ready:
             try:
                 resp = requests.post(
-                    self.cfg.transcribe_url,
+                    _require_https(self.cfg.transcribe_url),
                     headers=self._speech_auth(),
                     files={"audio": (filename, audio_bytes, audio_mime)},
                     data={"definition": json.dumps(definition)},
@@ -498,7 +527,7 @@ class MAIClient:
         if self.cfg.speech_ready:
             try:
                 resp = requests.post(
-                    self.cfg.tts_url,
+                    _require_https(self.cfg.tts_url),
                     headers={
                         "Content-Type": "application/ssml+xml",
                         "X-Microsoft-OutputFormat": "audio-24khz-160kbitrate-mono-mp3",
@@ -522,6 +551,26 @@ class MAIClient:
         audio, mime = fallback.synthesize(text)
         meta["mime"] = mime
         return MAIResult("fallback", audio, meta, elapsed=time.time() - t0)
+
+
+def _require_https(url: str) -> str:
+    """Refuse to send a credential anywhere but HTTPS.
+
+    Every Azure SDK client enforces this; reaching for raw ``requests`` to match the
+    REST docs gave it up. Without it a typo in an endpoint (``http://``, or a bare
+    hostname that never had a scheme) sends an Entra token, or a resource key, in
+    cleartext, and the only symptom is a request that works.
+
+    Checked here rather than in ``Config.__post_init__`` on purpose: ``get_config``
+    runs at import under Streamlit, and raising there would blank the whole app over
+    one mistyped endpoint instead of degrading that one service.
+    """
+    if not url.lower().startswith("https://"):
+        raise ValueError(
+            f"Refusing to send credentials over a non-HTTPS endpoint: {url!r}. "
+            "Endpoints must start with https://"
+        )
+    return url
 
 
 # ── response parsing helpers ────────────────────────────────────────────────────
@@ -553,7 +602,12 @@ def _first_b64_png(payload: dict) -> bytes:
     raise ValueError("Image response did not contain PNG data")
 
 
-def _next_image_attempt(exc: Exception, payload: dict, fallback_deployment: str) -> dict | None:
+def _next_image_attempt(
+    exc: Exception,
+    payload: dict,
+    fallback_deployment: str,
+    allow_deployment_swap: bool = True,
+) -> dict | None:
     """Return one meaningfully changed retry, or stop for transient/unrelated errors."""
     if not isinstance(exc, requests.HTTPError):
         return None
@@ -562,7 +616,7 @@ def _next_image_attempt(exc: Exception, payload: dict, fallback_deployment: str)
     if status in {400, 413, 422} and (payload["width"], payload["height"]) != (768, 768):
         retry.update(width=768, height=768)
         return retry
-    if status in {400, 404} and payload["model"] != fallback_deployment:
+    if allow_deployment_swap and status in {400, 404} and payload["model"] != fallback_deployment:
         retry["model"] = fallback_deployment
         return retry
     return None
@@ -586,6 +640,32 @@ def _extract_transcript(payload: dict) -> str:
                 return str(payload[key])
     # Never hand back raw JSON as if it were a transcript.
     raise ValueError("Transcription response did not contain recognizable transcript text")
+
+
+# Magic bytes, checked instead of the browser-supplied content type. An uploader
+# reports what the file claims to be; these are what it actually is.
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+)
+
+
+def _validate_image(image_bytes: bytes, mime: str | None) -> str:
+    """Return the real MIME type of ``image_bytes``, or raise.
+
+    The edits API documents PNG and JPEG. ``mime`` is only consulted for the error
+    message, because a browser can report application/octet-stream for a perfectly
+    good PNG, and image/png for something that is not one.
+    """
+    if not image_bytes:
+        raise ValueError("Image input is empty")
+    for signature, detected in _IMAGE_SIGNATURES:
+        if image_bytes.startswith(signature):
+            return detected
+    claimed = (mime or "").split(";", 1)[0].strip().lower()
+    raise ValueError(
+        f"Unsupported image format; use PNG or JPEG (the file claims to be {claimed or 'unknown'})"
+    )
 
 
 _AUDIO_MIME = {

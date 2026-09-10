@@ -19,6 +19,56 @@ recorded separately: the strict smoke script passed for all four service areas o
 [`IMAGE_PRESERVATION.md`](IMAGE_PRESERVATION.md) ran live on 2026-08-28. Neither round
 changed the documented contract below.
 
+Section 0 (authentication) was added on 2026-09-10 when the sample moved to keyless
+Microsoft Entra ID. It is documentation-derived and carries its own verification note;
+the sections below it are unchanged and keep their earlier verification status.
+
+---
+
+## 0. Authentication
+
+The app authenticates **keyless** by default (`MAI_AUTH_MODE=entra`), with
+Microsoft Entra ID and Azure RBAC. `DefaultAzureCredential` resolves a managed
+identity in Azure and the developer's `az login` locally. Resource keys remain
+supported through `MAI_AUTH_MODE=key`.
+
+The two service families use **different token audiences**. They are not
+interchangeable: sending one where the other is expected fails with a 401.
+
+| Service | Scope | Role | Header |
+|---|---|---|---|
+| Thinking-1, Image-2.5 | `https://ai.azure.com/.default` | Cognitive Services User | `Authorization: Bearer <token>` |
+| Transcribe-1.5 | `https://cognitiveservices.azure.com/.default` | Cognitive Services Speech User | `Authorization: Bearer <token>` |
+| Voice-2 (TTS) | `https://cognitiveservices.azure.com/.default` | Cognitive Services Speech User | `Authorization: Bearer aad#<resourceId>#<token>` |
+
+Three consequences worth knowing, all of them enforced in `mai/config.py`:
+
+- ⚠️ **Speech requires a custom subdomain.** Entra tokens are rejected on the
+  regional endpoints, so the resource must be reachable as
+  `https://<name>.cognitiveservices.azure.com`. That property is not reversible.
+- ⚠️ **Keyless TTS cannot use the regional host.** `Bearer` tokens are scoped to
+  the host that owns them, so keyless synthesis moves from
+  `<region>.tts.speech.microsoft.com` to the resource's own subdomain. A resource
+  key works against either host, which is why the key path can share that URL.
+- ⚠️ **The `cognitiveservices/v1` path does not take a bare token.** It expects
+  the ARM resource ID and the token combined as `aad#<resourceId>#<token>`, hence
+  `MAI_SPEECH_RESOURCE_ID`. The transcription API takes a bare token.
+
+Role definition IDs used by `infra/main.bicep` (resolved from the live directory
+on 2026-09-10): Cognitive Services User `a97b65f3-24c7-4388-baec-2e87135dc908`,
+Cognitive Services Speech User `f2dc8367-1007-4938-bd23-fe263f013447`.
+
+> **Verification status.** This section is documentation-derived (2026-09-10) and
+> has **not** been confirmed against a live endpoint. The keyless wire format is
+> covered by offline tests in `tests/test_auth.py`, which prove what the client
+> sends, not what the service accepts. Run `scripts/live_smoke.py` in strict mode
+> against your own resource before relying on it, and record the result here.
+
+Sources:
+- https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/configure-entra-id
+- https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-configure-azure-ad-auth
+- https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech
+
 ---
 
 ## 1. MAI-Thinking-1 (reasoning + function calling)
@@ -27,7 +77,8 @@ changed the documented contract below.
   - `FOUNDRY_ENDPOINT` = `https://<your-resource>.services.ai.azure.com`
   - No `api-version` query parameter is required.
   - This repository uses the native path documented for MAI-Thinking-1.
-- **Auth:** header `api-key: <KEY>` (or `Authorization: Bearer <Entra token>`).
+- **Auth:** keyless `Authorization: Bearer <Entra token>` (default), or header
+  `api-key: <KEY>`. See section 0.
 - **Documented body fields used here:** `model`, `messages`, `tools`,
   `max_completion_tokens`, `stream`, `reasoning_display`.
   - `model` = the **deployment name** (typically `MAI-Thinking-1`).
@@ -81,11 +132,11 @@ Sources:
 
 - **Base:** `https://<your-resource>.services.ai.azure.com`
 - **Generation:** `POST {base}/mai/v1/images/generations`
-  - Headers: `Content-Type: application/json`, `api-key: <KEY>`
+  - Headers: `Content-Type: application/json`, plus auth (section 0)
   - JSON body: `{ "model": <deployment>, "prompt": str, "width": int, "height": int }`
   - `width`/`height` ≥ 768; `width * height` ≤ 1_048_576. Output is always **PNG**.
 - **Editing:** `POST {base}/mai/v1/images/edits`  ← the "Surgical Edit" demo
-  - **multipart/form-data**. Header: `api-key: <KEY>` (no manual `Content-Type`).
+  - **multipart/form-data**. Auth header only (section 0); no manual `Content-Type`.
   - `data = { "model": <deployment>, "prompt": str }`
   - `files = { "image": (name, bytes, "image/png" | "image/jpeg") }`
 - **Response (both):** `{ "data": [ { "b64_json": "<base64 PNG>" } ] }`
@@ -105,7 +156,8 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/us
 ## 3. MAI-Transcribe-1.5 (LLM Speech API / fast transcription)
 
 - **Endpoint:** `POST https://<your-resource>.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15`
-- **Auth:** header `Ocp-Apim-Subscription-Key: <SPEECH_KEY>`
+- **Auth:** keyless `Authorization: Bearer <Entra token>` (default), or header
+  `Ocp-Apim-Subscription-Key: <SPEECH_KEY>`. See section 0.
 - **Body:** `multipart/form-data`
   - `audio` = file (WAV, MP3, or FLAC; < 300 MB)
   - `definition` = JSON string:
@@ -141,10 +193,14 @@ Source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/mai-t
 
 - **API:** the same Azure Speech APIs/SDKs as the neural voices. Via REST:
   - **Endpoint:** `POST https://<region>.tts.speech.microsoft.com/cognitiveservices/v1`
+  - **Endpoint (keyless):** `POST https://<your-resource>.cognitiveservices.azure.com/cognitiveservices/v1`
+    (an Entra token is rejected by the regional host; see section 0)
   - Headers:
     - `Content-Type: application/ssml+xml`
     - `X-Microsoft-OutputFormat: audio-24khz-160kbitrate-mono-mp3`
-    - `Ocp-Apim-Subscription-Key: <SPEECH_KEY>`
+    - `User-Agent: <app name>` (documented as required)
+    - `Authorization: Bearer aad#<resourceId>#<token>`, or
+      `Ocp-Apim-Subscription-Key: <SPEECH_KEY>`
   - Body: SSML. Output: MP3 (per the output format).
 - **Expressive SSML:** `mstts:express-as` with `style` and `styledegree` (0.01–2.0).
 - **Real voices (the `<voice name="...">` value):**

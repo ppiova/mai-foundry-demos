@@ -49,6 +49,29 @@ data (a fictional cloud estate, a fictional product brand) exists only to make t
 demos legible. Assess the risks of any system you build from this code, and comply
 with the applicable laws and safety standards for your use case.
 
+## Automated checks
+
+Every push and pull request runs:
+
+| Check | Covers |
+|---|---|
+| CodeQL (`security-and-quality`) | Static analysis of the Python source, weekly as well as per change |
+| PSRule for Azure | `infra/main.bicep` against the Azure Well-Architected rules |
+| Dependency review | New dependencies with known vulnerabilities or incompatible licenses |
+| Dependabot | Weekly updates for pip and GitHub Actions |
+
+Credential scanning is GitHub secret scanning with push protection, which scans the
+full history and blocks a push containing a recognized secret. It is a repository
+setting rather than a workflow, so confirm it is enabled under Settings, Code
+security.
+
+`ps-rule.yaml` excludes two rules, `Azure.Cognitive.PublicAccess` and
+`Azure.Cognitive.PrivateEndpoints`, with the reasoning recorded in that file. A
+sample a presenter runs from a laptop cannot sit behind a private endpoint. The
+exposure those rules address is mitigated instead by deploying with
+`disableLocalAuth = true`, which leaves no key to steal, and by scoping access to
+two RBAC role assignments.
+
 ## Supported versions
 
 Only the default branch is maintained. Fixes are not backported to tags.

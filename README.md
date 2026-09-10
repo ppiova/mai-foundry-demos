@@ -193,8 +193,8 @@ pytest
 
 The suite is fully offline and hermetic: no credentials, no network, and no dependence
 on who is signed in to Azure. CI runs the same checks on Python 3.11 and 3.13, plus
-Microsoft Security DevOps for credential and template scanning, on every push and pull
-request. See [CONTRIBUTING.md](CONTRIBUTING.md).
+CodeQL, PSRule for Azure against the Bicep, and dependency review, on every push and
+pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ```
 app.py                     Streamlit entry (4 main tabs + 2 backup tabs)

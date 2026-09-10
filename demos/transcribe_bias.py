@@ -15,6 +15,8 @@ import streamlit as st
 from mai import MAIClient, audio_extension_for_mime
 from mai.fallback import ENTITIES, SAMPLE_TRANSCRIPT_SCRIPT
 
+from . import _notices as notices
+
 
 def _highlight(text: str, phrases: list[str]) -> str:
     out = html.escape(text)
@@ -66,6 +68,7 @@ def render(client: MAIClient) -> None:
     up = c2.file_uploader(
         "…or upload audio (WAV/MP3/FLAC)", type=["wav", "mp3", "flac"], key="tr_up"
     )
+    notices.audio_consent()
     if up is not None:
         st.session_state["tr_audio"] = up.read()
         st.session_state["tr_audio_mime"] = up.type or "audio/wav"
@@ -74,6 +77,8 @@ def render(client: MAIClient) -> None:
     audio = st.session_state.get("tr_audio")
     if audio:
         st.audio(audio, format=st.session_state.get("tr_audio_mime", "audio/mp3"))
+        if st.session_state.get("tr_audio_name") is None:
+            notices.synthetic_voice()
 
     if st.button("▶ Transcribe: baseline vs phraseList", type="primary", key="tr_run"):
         if not audio:
@@ -109,6 +114,12 @@ def render(client: MAIClient) -> None:
         left.markdown(_highlight(base.data, ENTITIES), unsafe_allow_html=True)
         right.markdown("**With phraseList** (entity biasing)")
         right.markdown(_highlight(biased.data, ENTITIES), unsafe_allow_html=True)
-        st.success(
-            "Green = domain entities. Note how the baseline mangles the proper nouns the phraseList recovers."
-        )
+        if base.is_live and biased.is_live:
+            st.success(
+                "Green = domain entities. Note how the baseline mangles the proper nouns the phraseList recovers."
+            )
+        else:
+            st.info(
+                "Simulated comparison. Both transcripts are canned strings from the offline "
+                "fallback, chosen to illustrate the effect rather than measured from audio."
+            )

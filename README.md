@@ -173,8 +173,12 @@ All of these are recorded, with sources, in [`docs/API_VERIFIED.md`](docs/API_VE
 
 - **Preview status.** Microsoft Learn currently labels MAI-Thinking-1 and the selected
   Image, Transcribe, and Voice capabilities as preview. Preview capabilities can change.
-- **Transcribe naming.** This sample uses the currently documented `mai-transcribe-1.5`
-  identifier rather than names from older materials.
+- **Transcribe generations.** `MAI-Transcribe-2` is now documented alongside
+  `mai-transcribe-1.5`, and `MAI-Transcribe-1` was deprecated on 2026-08-20. This sample
+  targets `mai-transcribe-1.5`, the version its live runs were measured against.
+  `docs/API_VERIFIED.md` records three differences found on 2026-09-10 between that file
+  and the current documentation, including an inverted `transcribeStyle` default, which
+  are pending a live run.
 - **Deployment names are configurable.** The `model` field in each call is the deployment
   name you assign, not a fixed model ID.
 - **Voice styles are voice-dependent.** `empathy` exists on `es-ES-Marta` and the
@@ -193,8 +197,7 @@ pytest
 
 The suite is fully offline and hermetic: no credentials, no network, and no dependence
 on who is signed in to Azure. CI runs the same checks on Python 3.11 and 3.13, plus
-CodeQL, PSRule for Azure against the Bicep, and dependency review, on every push and
-pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+CodeQL and PSRule for Azure against the Bicep, on every push and pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ```
 app.py                     Streamlit entry (4 main tabs + 2 backup tabs)

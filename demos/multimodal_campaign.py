@@ -20,6 +20,8 @@ import streamlit as st
 
 from mai import MAIClient, audio_extension_for_mime
 
+from . import _notices as notices
+
 DEFAULT_BRIEF = (
     "Create a launch campaign for a new sustainable smart backpack targeted at business travelers."
 )
@@ -152,6 +154,7 @@ def render(client: MAIClient) -> None:
                 st.session_state["mm_audio_mime"]
             )
     up = c2.file_uploader("…or upload a spoken brief", type=["wav", "mp3", "flac"], key="mm_up")
+    notices.audio_consent()
     if up is not None:
         st.session_state["mm_audio"] = up.read()
         st.session_state["mm_audio_mime"] = up.type or "audio/wav"
@@ -212,6 +215,7 @@ def render(client: MAIClient) -> None:
         total += vo.elapsed
         if vo.data:
             st.audio(vo.data, format=vo.meta.get("mime", "audio/mp3"))
+            notices.synthetic_voice()
         st.write(campaign.voiceover_script)
 
         st.success(f"End-to-end multimodal pipeline complete · total {total:.1f}s")

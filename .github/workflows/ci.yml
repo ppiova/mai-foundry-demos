@@ -38,25 +38,38 @@ jobs:
       - name: Tests (offline / fallback mode)
         run: pytest
 
-  security:
+  # Infrastructure as code analysis. Rule exclusions, and the reasoning behind
+  # them, live in ps-rule.yaml where a reviewer can see them.
+  infrastructure:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Analyze Bicep with PSRule for Azure
+        uses: microsoft/ps-rule@v2.9.0
         with:
-          python-version: "3.11"
-      - name: Microsoft Security DevOps
-        uses: microsoft/security-devops-action@v1
-        id: msdo
-        with:
-          # Credential scanning plus infrastructure-as-code analysis: the two that
-          # matter for a sample whose whole point is that it holds no secrets.
-          tools: credscan,templateanalyzer
+          modules: PSRule.Rules.Azure
+          inputPath: infra/
+          outputFormat: Sarif
+          outputPath: reports/ps-rule.sarif
       - name: Upload results to code scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ${{ steps.msdo.outputs.sarifFile }}
+          sarif_file: reports/ps-rule.sarif
+
+  # Blocks a pull request that introduces a dependency with a known vulnerability
+  # or an incompatible license, before it reaches main.
+  dependencies:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          comment-summary-in-pr: on-failure

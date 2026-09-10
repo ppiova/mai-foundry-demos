@@ -53,7 +53,10 @@ def main(client: MAIClient | None = None, allow_partial: bool = False) -> int:
     client = client or MAIClient()
     cfg = client.cfg
     mode = "strict" if cfg.strict else "demo"
-    print(f"MAI live smoke test (execution mode: {mode})")
+    auth = "keyless (Microsoft Entra ID)" if cfg.keyless_enabled else "resource key"
+    print(f"MAI live smoke test (execution mode: {mode}, auth: {auth})")
+    if cfg.keyless_enabled and not cfg.voice_keyless:
+        print("  note: Voice-2 falls back to a key; keyless TTS needs MAI_SPEECH_RESOURCE_ID.")
     if not cfg.strict:
         print("  note: in demo mode a failure degrades to fallback and is reported, not raised.")
 

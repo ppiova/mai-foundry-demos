@@ -12,6 +12,8 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from .auth import entra_available
+
 try:
     from dotenv import load_dotenv
 
@@ -51,6 +53,9 @@ class Config:
     speech_endpoint: str = field(default_factory=lambda: _env("MAI_SPEECH_ENDPOINT").rstrip("/"))
     speech_key: str = field(default_factory=lambda: _env("MAI_SPEECH_KEY"))
     speech_region: str = field(default_factory=lambda: _env("MAI_SPEECH_REGION", "eastus"))
+    # ARM resource ID of the Speech resource. Keyless text to speech needs it:
+    # the cognitiveservices/v1 path takes aad#{resourceId}#{token}, not a bare token.
+    speech_resource_id: str = field(default_factory=lambda: _env("MAI_SPEECH_RESOURCE_ID"))
     transcribe_model: str = field(
         default_factory=lambda: _env("MAI_TRANSCRIBE_MODEL", "mai-transcribe-1.5")
     )
@@ -91,11 +96,20 @@ class Config:
     # and CI can actually fail. See MAI_EXECUTION_MODE in .env.example.
     execution_mode: str = field(default_factory=lambda: _env("MAI_EXECUTION_MODE", "demo").lower())
 
+    # "entra" (default): keyless, via Microsoft Entra ID and Azure RBAC, with no
+    # secrets in .env. "key": resource keys, for environments without an Entra
+    # identity. See MAI_AUTH_MODE in .env.example and docs/API_VERIFIED.md.
+    auth_mode: str = field(default_factory=lambda: _env("MAI_AUTH_MODE", "entra").lower())
+
     def __post_init__(self) -> None:
         normalized = self.execution_mode.strip().lower()
         object.__setattr__(self, "execution_mode", normalized)
         if normalized not in {"demo", "strict"}:
             raise ValueError("MAI_EXECUTION_MODE must be 'demo' or 'strict'")
+        auth = self.auth_mode.strip().lower()
+        object.__setattr__(self, "auth_mode", auth)
+        if auth not in {"entra", "key"}:
+            raise ValueError("MAI_AUTH_MODE must be 'entra' or 'key'")
 
     # ── timeouts / execution mode ────────────────────────────────────────────
     @property
@@ -119,22 +133,50 @@ class Config:
     def voice_timeout(self) -> tuple[int, int]:
         return (self.voice_connect_timeout, self.voice_read_timeout)
 
+    # ── authentication ───────────────────────────────────────────────────────
+    # Entra is preferred wherever it can work, and resolved per service: each
+    # service has its own endpoint and its own prerequisites, so Voice can stay
+    # on a key while Thinking runs keyless. A configured key is also kept as a
+    # per-call safety net (mai/client.py): losing a stage demo because an
+    # identity failed to resolve, with a valid key right there, would be absurd.
+    @property
+    def keyless_enabled(self) -> bool:
+        """True when Entra is the requested mode and ``azure-identity`` is present."""
+        return self.auth_mode == "entra" and entra_available()
+
+    # Foundry needs no per-service flag: a token for the inference audience is
+    # valid for any Foundry endpoint, so keyless_enabled is the whole question.
+    # Speech is different, hence the two properties below.
+    @property
+    def transcribe_keyless(self) -> bool:
+        return self.keyless_enabled and bool(self.speech_endpoint)
+
+    @property
+    def voice_keyless(self) -> bool:
+        """Keyless TTS needs the custom-subdomain endpoint *and* the resource ID.
+
+        An Entra token is rejected by the regional ``*.tts.speech.microsoft.com``
+        host, and the ``cognitiveservices/v1`` path wants ``aad#{id}#{token}``.
+        Without both values the only workable path is the key.
+        """
+        return self.keyless_enabled and bool(self.speech_endpoint and self.speech_resource_id)
+
     # ── readiness flags ──────────────────────────────────────────────────────
     @property
     def foundry_ready(self) -> bool:
-        return bool(self.foundry_endpoint and self.foundry_api_key)
+        return bool(self.foundry_endpoint) and (self.keyless_enabled or bool(self.foundry_api_key))
 
     @property
     def image_ready(self) -> bool:
-        return bool(self.image_endpoint and self.image_api_key)
+        return bool(self.image_endpoint) and (self.keyless_enabled or bool(self.image_api_key))
 
     @property
     def speech_ready(self) -> bool:
-        return bool(self.speech_key and self.speech_region)
+        return self.voice_keyless or bool(self.speech_key and self.speech_region)
 
     @property
     def transcribe_ready(self) -> bool:
-        return bool(self.speech_endpoint and self.speech_key)
+        return bool(self.speech_endpoint) and (self.keyless_enabled or bool(self.speech_key))
 
     @property
     def any_service_ready(self) -> bool:
@@ -164,6 +206,17 @@ class Config:
 
     @property
     def tts_url(self) -> str:
+        """Text to speech endpoint.
+
+        A bearer token is only accepted by the host that owns it, so keyless
+        synthesis has to use the resource's custom subdomain rather than the
+        regional ``{region}.tts.speech.microsoft.com`` host. Selecting it by
+        ``voice_keyless`` and not by the auth actually used is deliberate: a
+        resource key works against every endpoint format, so if the token cannot
+        be obtained the key still succeeds on this same URL.
+        """
+        if self.voice_keyless:
+            return f"{self.speech_endpoint}/cognitiveservices/v1"
         return f"https://{self.speech_region}.tts.speech.microsoft.com/cognitiveservices/v1"
 
 

@@ -19,8 +19,8 @@ param deployImageModels bool = true
 @description('Azure region for the account. Confirm current model and deployment availability in Microsoft Foundry before deployment.')
 param location string = 'eastus'
 
-@description('Global Standard TPM/capacity for the MAI-Thinking-1 deployment.')
-param thinkingCapacity int = 50
+@description('Global Standard TPM/capacity (thousands of tokens per minute) for MAI-Thinking-1. The default is demo-sized on purpose: 50 commonly exceeds the per-subscription, per-region quota on a fresh subscription, and the deployment then fails with InsufficientQuota. Raise it if you have the quota.')
+param thinkingCapacity int = 10
 
 @description('Global Standard capacity for each MAI image deployment.')
 param imageCapacity int = 1

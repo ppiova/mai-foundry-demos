@@ -1,0 +1,29 @@
+{
+  "name": "MAI Foundry Demos",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+  "features": {
+    // Needed for `az login` on the keyless path, and for deploying infra/.
+    "ghcr.io/devcontainers/features/azure-cli:1": {}
+  },
+  "forwardPorts": [8501],
+  "portsAttributes": {
+    "8501": {
+      "label": "Streamlit",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  // Pinned, so a Codespace opened the week of a talk installs what was verified.
+  "postCreateCommand": "pip install --user -r requirements.txt -c constraints.txt && pip install --user ruff pytest",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-bicep"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  }
+}

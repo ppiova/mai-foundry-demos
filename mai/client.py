@@ -460,11 +460,12 @@ class MAIClient:
         if locales:
             definition["locales"] = locales
         if verbatim:
-            # Flat path, matching what the 2026-08-27 strict smoke run exercised against
-            # mai-transcribe-1.5. Learn documents the nested modelOptions form for
-            # Transcribe-2, and says verbatim is now the default, which would make this
-            # toggle a no-op. Both questions are open; see docs/API_VERIFIED.md section 3.
-            # Do not change the shape here without a live run that proves the new one.
+            # Flat path: verified live (2026-09-11) that mai-transcribe-1.5 accepts
+            # "verbatim" here and produces identical output to omitting the field
+            # entirely, since verbatim is already this model's only supported style.
+            # "clean" is rejected outright with HTTP 400 on this model; do not send
+            # it. See docs/API_VERIFIED.md section 3 for the full picture, including
+            # why the nested modelOptions path (Transcribe-2) is a separate model.
             definition["enhancedMode"]["transcribeStyle"] = "verbatim"
         if phrases:
             definition["phraseList"] = {"phrases": phrases}

@@ -104,17 +104,20 @@ def test_tts_wraps_the_token_with_the_resource_id(entra):
     }
 
 
-def test_keyless_tts_targets_the_resource_host_not_the_regional_one(entra):
+def test_tts_uses_the_regional_host_even_when_keyless(entra):
+    """Verified live 2026-09-11: the custom subdomain 404s on this path; only the
+    regional host works, for a key and for an Entra token alike."""
     cfg = Config(
         auth_mode="entra",
         speech_endpoint="https://r.cognitiveservices.azure.com",
         speech_resource_id=RESOURCE_ID,
         speech_region="eastus",
     )
-    assert cfg.tts_url == "https://r.cognitiveservices.azure.com/cognitiveservices/v1"
+    assert cfg.voice_keyless
+    assert cfg.tts_url == "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1"
 
 
-def test_tts_without_a_resource_id_stays_on_the_key_and_regional_host(entra):
+def test_tts_without_a_resource_id_falls_back_to_the_key(entra):
     """Keyless TTS is impossible without the resource ID, so it must not be claimed."""
     cfg = Config(
         auth_mode="entra",

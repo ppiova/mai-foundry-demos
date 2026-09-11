@@ -16,6 +16,9 @@ param accountName string
 @description('Deploy MAI-Image-2.5 and MAI-Image-2.5-Flash on this account. Confirm current model availability for `location`; set this to false for a Thinking-only deployment.')
 param deployImageModels bool = true
 
+@description('Deploy MAI-Thinking-1 on this account. MAI-Thinking-1 Global Standard TPM quota is allocated per subscription, not per region (confirmed live 2026-09-11: az cognitiveservices usage list reports it with scopeType Global, unlike most models, which are scoped per region). A subscription that already has the quota committed elsewhere gets InsufficientQuota on every region and every capacity value down to 1. Set this to false to deploy Image and Speech independently while a quota increase is pending: https://aka.ms/oai/stuquotarequest.')
+param deployThinkingModel bool = true
+
 @description('Azure region for the account. Confirm current model and deployment availability in Microsoft Foundry before deployment.')
 param location string = 'eastus'
 
@@ -69,8 +72,10 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-09-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    // Required for Microsoft Entra authentication against the Speech APIs, which
-    // reject tokens on the regional endpoints. Not reversible once set.
+    // Required for a Speech resource to be eligible for Microsoft Entra
+    // authentication at all. Verified live 2026-09-11: TTS requests themselves
+    // still go to the regional host, not this subdomain (docs/API_VERIFIED.md
+    // section 0). Not reversible once set.
     customSubDomainName: accountName
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: disableLocalAuth
@@ -106,7 +111,10 @@ resource speechRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (a
   }
 }
 
-resource thinkingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-09-01' = {
+// Conditional, not unconditional: a resource that a dependent `dependsOn`
+// references is treated as already satisfied when its own condition is false,
+// so imageEditDeployment below deploys correctly whether or not this one runs.
+resource thinkingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-09-01' = if (deployThinkingModel) {
   parent: account
   name: 'MAI-Thinking-1'
   sku: {

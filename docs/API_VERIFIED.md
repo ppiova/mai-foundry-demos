@@ -43,13 +43,20 @@ interchangeable: sending one where the other is expected fails with a 401.
 
 Three consequences worth knowing, all of them enforced in `mai/config.py`:
 
-- ⚠️ **Speech requires a custom subdomain.** Entra tokens are rejected on the
-  regional endpoints, so the resource must be reachable as
-  `https://<name>.cognitiveservices.azure.com`. That property is not reversible.
-- ⚠️ **Keyless TTS cannot use the regional host.** `Bearer` tokens are scoped to
-  the host that owns them, so keyless synthesis moves from
-  `<region>.tts.speech.microsoft.com` to the resource's own subdomain. A resource
-  key works against either host, which is why the key path can share that URL.
+- ⚠️ **Speech requires a custom subdomain.** A resource without one is not
+  eligible for Microsoft Entra authentication at all; that property is not
+  reversible once set. This is a prerequisite, not the host requests go to (see
+  the next point).
+- ⚠️ **Keyless TTS still uses the regional host, not the custom subdomain.**
+  Verified live on 2026-09-11 against a real `AIServices` account:
+  `POST https://<name>.cognitiveservices.azure.com/cognitiveservices/v1` returns
+  **404** for a bearer token, with or without the `aad#` composite.
+  `POST https://<region>.tts.speech.microsoft.com/cognitiveservices/v1` with
+  `Authorization: Bearer aad#<resourceId>#<token>` returns **200** with real
+  audio. The docs' own worked example shows the custom-subdomain host, which
+  reads as though it should work; it did not, on this account. Key-mode TTS
+  already used the regional host, so this fix made the two auth modes share the
+  same URL rather than diverge on it.
 - ⚠️ **The `cognitiveservices/v1` path does not take a bare token.** It expects
   the ARM resource ID and the token combined as `aad#<resourceId>#<token>`, hence
   `MAI_SPEECH_RESOURCE_ID`. The transcription API takes a bare token.
@@ -58,11 +65,57 @@ Role definition IDs used by `infra/main.bicep` (resolved from the live directory
 on 2026-09-10): Cognitive Services User `a97b65f3-24c7-4388-baec-2e87135dc908`,
 Cognitive Services Speech User `f2dc8367-1007-4938-bd23-fe263f013447`.
 
-> **Verification status.** This section is documentation-derived (2026-09-10) and
-> has **not** been confirmed against a live endpoint. The keyless wire format is
-> covered by offline tests in `tests/test_auth.py`, which prove what the client
-> sends, not what the service accepts. Run `scripts/live_smoke.py` in strict mode
-> against your own resource before relying on it, and record the result here.
+> **Verification status.** Confirmed live on 2026-09-11 against a real
+> `AIServices` account (`mai-foundry-demos-ppiova`, `eastus`, deployed with
+> `infra/main.bicep`, `disableLocalAuth = true`): keyless **Image generation**
+> and **Image edit** both went LIVE end to end, and keyless **Voice-2 synthesis**
+> went LIVE once the TTS host fix above was applied. RBAC propagation took close
+> to the documented five minutes. MAI-Thinking-1 was not deployed in this run
+> (subscription-wide quota exhausted; see `infra/README.md`), so the Thinking
+> audience and role are still documentation-derived. See the note on
+> `DefaultAzureCredential` credential precedence below if a keyless call fails
+> with 401 even though the role is assigned correctly.
+
+### ⚠️ `DefaultAzureCredential` can silently pick the wrong identity
+
+Encountered live on 2026-09-11, and worth naming because the symptom looks
+exactly like an RBAC propagation delay and is not one.
+
+`DefaultAzureCredential` tries several credential sources in a fixed order and
+uses whichever succeeds first. In an execution environment that exposes a
+Managed Identity reachable over IMDS, `ManagedIdentityCredential` succeeds
+before the chain ever reaches `AzureCliCredential`, even when the developer is
+correctly signed in with `az login` and that user has the correct roles. The
+app then authenticates as the managed identity, not the developer, gets a
+persistent 401, and never recovers no matter how long RBAC has had to
+propagate. This is silent: nothing in the error message says which identity was
+actually used.
+
+To check which identity a failing call is really using, decode the token's
+claims (no signature verification needed for this):
+
+```python
+from azure.identity import AzureCliCredential  # or DefaultAzureCredential
+import base64, json
+
+token = AzureCliCredential().get_token("https://ai.azure.com/.default").token
+payload = token.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+claims = json.loads(base64.urlsafe_b64decode(payload))
+print(claims.get("idtyp"), claims.get("oid"), claims.get("appid"))
+```
+
+`idtyp: "app"` with an unfamiliar `appid` means some other identity won the
+credential chain. Confirm by testing `AzureCliCredential` directly, in isolation
+from the rest of the chain (same shape as the snippet above): if that succeeds
+and matches your own `az ad signed-in-user show`, the fix is to stop relying on
+automatic precedence for local development, not to wait longer.
+
+Not yet fixed in `mai/auth.py`, which still constructs a bare
+`DefaultAzureCredential()`. Worth an explicit override (an env var to force
+`AzureCliCredential`, or `DefaultAzureCredential(exclude_managed_identity_credential=True)`
+for local runs) as a follow-up; recorded here rather than fixed silently, since
+it changes what `mai/auth.py` does by default and deserves its own review.
 
 Sources:
 - https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/configure-entra-id
@@ -180,29 +233,34 @@ Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/us
   live runs were measured against; moving to Transcribe-2 is a deliberate change, not a
   default.
 
-### ⚠️ Drift found on 2026-09-10, not yet reconciled with a live run
+### `transcribeStyle` on `mai-transcribe-1.5`: fully resolved live on 2026-09-11
 
-Re-reading the source page against this file turned up three differences. They are
-recorded here rather than silently corrected in code, because this repo's rule is that a
-claim is only "verified" when a live run says so.
+Drift was first noticed on 2026-09-10 re-reading the Learn source against this file,
+recorded then as open questions rather than corrected on documentation alone, per this
+repo's rule that a claim is only "verified" when a live run says so. Two live tests
+against a real `mai-transcribe-1.5` deployment (`mai-foundry-demos-ppiova`, keyless)
+settle all three:
 
-| Item | What this file used to say | What Learn says now |
-| --- | --- | --- |
-| Diarization | "Not supported" | Supported via `diarization.enabled`. Requests fail at roughly 15 minutes and longer in preview (408, or 500/503 `diarization_unavailable`) |
-| `transcribeStyle` default | Readability-optimized, with `verbatim` as the opt-in | **`verbatim` is the default**, and `clean` is the readability-optimized value |
-| `transcribeStyle` path | Flat, `enhancedMode.transcribeStyle` | Nested, `enhancedMode.modelOptions.transcribeStyle`, alongside `modelOptions.timestamps` |
+| Item | Was documented as | Learn now says | Live result |
+| --- | --- | --- | --- |
+| Diarization | "Not supported" | Supported via `diarization.enabled` (fails past ~15 min in preview) | Not exercised this round |
+| `transcribeStyle` default | Readability-optimized, `verbatim` opt-in | `verbatim` is the default, `clean` is readability-optimized | **Confirmed.** Same clip, transcribed once with `transcribeStyle` omitted and once with `"verbatim"` explicit, produced **byte-identical text**, filler words and a false-start correction intact both times |
+| `transcribeStyle` path | Flat, `enhancedMode.transcribeStyle` | Nested, `enhancedMode.modelOptions.transcribeStyle`, for Transcribe-2 | **Confirmed the flat form still works** for 1.5: `"verbatim"` succeeds on it live |
+| `transcribeStyle: "clean"` on 1.5 | Not previously tested | Documented as a Transcribe-2 value | **Rejected.** `POST .../transcribe` with `enhancedMode.transcribeStyle: "clean"` on the flat path returns **HTTP 400**: `"transcribeStyle='clean' is not supported by MAI transcription model 'mai-transcribe-1.5'."` |
 
-`mai/client.py` sends the **flat** form, and that is what the 2026-08-27 strict smoke run
-exercised successfully against a `mai-transcribe-1.5` deployment. The nested form is
-documented for Transcribe-2. Both can be true: the parameter may have moved with the new
-generation. Do not "fix" the path without a live run that proves it.
+**Conclusion: `mai-transcribe-1.5` only ever produces verbatim output.** `clean` is a
+Transcribe-2 value this model rejects outright, and the default was already verbatim, so
+there is no way to get a readability-optimized transcript from `mai-transcribe-1.5`
+through this parameter at all.
 
-The inverted default matters more. The client omits `transcribeStyle` unless the demo's
-verbatim toggle is on, which assumed that omitting it meant readability-optimized. If the
-default really is `verbatim`, then that toggle changes nothing and the demo's baseline is
-already verbatim. Sending `clean` explicitly when the toggle is off would make the intent
-unambiguous, but whether `mai-transcribe-1.5` accepts `clean` is unverified. **Resolve
-both with one strict smoke run before the next talk**, then update this section.
+This means `demos/transcribe_bias.py`'s verbatim toggle is a no-op against a live
+`mai-transcribe-1.5` deployment: both positions produce the same transcript, because the
+model has no other style to switch to. Not a client bug, since sending `"clean"` would
+just turn a working call into a guaranteed 400. The demo now says so next to the toggle
+rather than implying it changes the output. Moving to `MAI-Transcribe-2` would make the
+toggle meaningful again, at the cost of the nested `modelOptions` path and a separate
+model-availability check; not done here, since `mai-transcribe-1.5` is what the rest of
+this file's live verification (2026-08-27, 2026-09-11) was measured against.
 
 - **Not supported:** prompt-tuning.
 - **Response:** fast-transcription format; text usually appears in `combinedPhrases[].text`
@@ -218,9 +276,10 @@ Source: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/mai-t
 ## 4. MAI-Voice-2 (expressive TTS)
 
 - **API:** the same Azure Speech APIs/SDKs as the neural voices. Via REST:
-  - **Endpoint:** `POST https://<region>.tts.speech.microsoft.com/cognitiveservices/v1`
-  - **Endpoint (keyless):** `POST https://<your-resource>.cognitiveservices.azure.com/cognitiveservices/v1`
-    (an Entra token is rejected by the regional host; see section 0)
+  - **Endpoint (both auth modes):** `POST https://<region>.tts.speech.microsoft.com/cognitiveservices/v1`.
+    Verified live (2026-09-11): the resource's own custom subdomain 404s on this
+    path for a bearer token; the regional host is what actually works, for a key
+    and for an Entra token alike. See section 0.
   - Headers:
     - `Content-Type: application/ssml+xml`
     - `X-Microsoft-OutputFormat: audio-24khz-160kbitrate-mono-mp3`

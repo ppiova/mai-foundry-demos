@@ -151,10 +151,12 @@ the detail that most often costs an afternoon:
 | Thinking, Image | `https://ai.azure.com/.default` | Cognitive Services User |
 | Transcribe, Voice | `https://cognitiveservices.azure.com/.default` | Cognitive Services Speech User |
 
-Speech additionally requires a custom subdomain on the resource, and keyless text to
-speech requires the resource ID, because that path takes the token as
-`aad#<resourceId>#<token>`. Full details and sources are in section 0 of
-[`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
+Speech additionally requires a custom subdomain on the resource (a prerequisite for
+Entra eligibility, verified live not to be the host TTS requests actually reach), and
+keyless text to speech requires the resource ID, because that path takes the token as
+`aad#<resourceId>#<token>` against the regional TTS host. Full details, including a
+live-verified gotcha with `DefaultAzureCredential` picking an unexpected identity, are
+in section 0 of [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
 
 ```mermaid
 flowchart LR
@@ -211,9 +213,8 @@ All of these are recorded, with sources, in [`docs/API_VERIFIED.md`](docs/API_VE
 - **Transcribe generations.** `MAI-Transcribe-2` is now documented alongside
   `mai-transcribe-1.5`, and `MAI-Transcribe-1` was deprecated on 2026-08-20. This sample
   targets `mai-transcribe-1.5`, the version its live runs were measured against.
-  `docs/API_VERIFIED.md` records three differences found on 2026-09-10 between that file
-  and the current documentation, including an inverted `transcribeStyle` default, which
-  are pending a live run.
+  Verified live: `mai-transcribe-1.5` only ever produces verbatim output, and rejects
+  `clean` outright (Transcribe-2 supports both). See `docs/API_VERIFIED.md` section 3.
 - **Deployment names are configurable.** The `model` field in each call is the deployment
   name you assign, not a fixed model ID.
 - **Voice styles are voice-dependent.** `empathy` exists on `es-ES-Marta` and the

@@ -90,15 +90,27 @@ Speech and the Foundry models do not have to share an account. Point
 ## Quota
 
 `thinkingCapacity` draws from your subscription's **Tokens-per-Minute (thousands)**
-quota for `MAI-Thinking-1` in the target region — this is a per-subscription,
-per-region limit, separate from the account itself. If `az deployment group
-validate` (or the real deployment) fails with `InsufficientQuota`, you're not
-looking at a template bug: either lower `thinkingCapacity`, delete/shrink an
-existing `MAI-Thinking-1` deployment in that region, or request more quota:
-https://aka.ms/oai/stuquotarequest. An earlier authorized
-`az deployment group validate` run checked the Azure deployment/schema contract;
-that command was not an end-to-end deployment or a live model endpoint test. No live
-endpoint verification was performed for PR #4.
+quota for `MAI-Thinking-1`. Verified live on 2026-09-11: that quota is allocated
+**per subscription, not per region** (`az cognitiveservices usage list` reports it
+with `scopeType: Global`). Most models are region-scoped instead; do not assume
+switching `location` frees any headroom for this one.
+
+If `az deployment group validate` (or the real deployment) fails with
+`InsufficientQuota`, check what actually holds it before assuming a stale
+deployment is the cause, since a live check of this subscription found the quota
+fully committed with **no deployment anywhere holding it**:
+
+```bash
+az cognitiveservices usage list --location <any-region-in-the-subscription> \
+  --query "[?contains(name.value, 'MAI-Thinking-1')]"
+```
+
+If `currentValue` equals `limit`, lowering `thinkingCapacity` will not help; even
+`thinkingCapacity = 1` fails identically once the quota is fully committed. Two
+ways forward: request more quota (https://aka.ms/oai/stuquotarequest), or deploy
+with `deployThinkingModel = false` to bring up Image and Speech independently
+while the request is pending. Nothing else in the app depends on all four
+services being live at once; each is checked and degrades on its own.
 
 ## After deploying: fill in `.env`
 

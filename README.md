@@ -44,7 +44,7 @@ Beyond the demos themselves:
   every call, its source in Microsoft Learn, and whether it was verified live.
 - **Infrastructure as code.** [`infra/main.bicep`](infra/main.bicep) deploys the Foundry
   resource, the model deployments, and the role assignments in one command.
-- **Offline test suite.** 100 tests, no credentials, no network.
+- **Offline test suite.** 121 tests, no credentials, no network.
 
 ## Getting Started
 
@@ -156,6 +156,41 @@ speech requires the resource ID, because that path takes the token as
 `aad#<resourceId>#<token>`. Full details and sources are in section 0 of
 [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md).
 
+```mermaid
+flowchart LR
+    App["Streamlit app"]
+
+    subgraph Auth["DefaultAzureCredential"]
+        T1["ai.azure.com/.default"]
+        T2["cognitiveservices.azure.com/.default"]
+    end
+
+    subgraph Account["Foundry account (custom subdomain)"]
+        Think["MAI-Thinking-1"]
+        Image["MAI-Image-2.5 / Flash"]
+        Trans["MAI-Transcribe-1.5"]
+        Voice["MAI-Voice-2"]
+    end
+
+    Fallback["Deterministic fallback<br/>labelled, never live"]
+
+    App --> T1
+    App --> T2
+    T1 -- "Bearer token" --> Think
+    T1 -- "Bearer token" --> Image
+    T2 -- "Bearer token" --> Trans
+    T2 -- "Bearer aad#resourceId#token" --> Voice
+
+    Think -. "any failure, demo mode" .-> Fallback
+    Image -. "" .-> Fallback
+    Trans -. "" .-> Fallback
+    Voice -. "" .-> Fallback
+```
+
+Two audiences, one account, and only the text to speech leg wraps the token with
+the resource ID. Every dotted edge is the per-call degrade: a failure on any one
+service leaves the other three live.
+
 If a demo shows FALLBACK when you expected LIVE, see the checklist in
 [SUPPORT.md](SUPPORT.md). Role assignments take up to five minutes to propagate.
 
@@ -222,6 +257,9 @@ scripts/
   measure_preservation.py  Reproduces the numbers in IMAGE_PRESERVATION.md
 tests/                     Offline tests (pytest, no credentials)
 infra/                     Bicep: Foundry resource, model deployments, role assignments
+.devcontainer/             One-click Codespace, offline run with no Azure account
+ps-rule.yaml               PSRule config, including the documented rule exclusions
+constraints.txt            Pinned versions for a run that matters
 ```
 
 ## Resources
@@ -256,7 +294,8 @@ vulnerability privately.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SUPPORT.md](SUPPORT.md), and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Licensed under the MIT License; see
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Notable changes are recorded in
+[CHANGELOG.md](CHANGELOG.md). Licensed under the MIT License; see
 [LICENSE.md](LICENSE.md).
 
 ## Trademarks

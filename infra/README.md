@@ -56,6 +56,37 @@ Check the current Microsoft Foundry model catalog before setting `location`. If 
 only need Thinking, set `deployImageModels = false`; the app can independently point
 `MAI_IMAGE_*` at another authorized resource.
 
+### Speech is the constraint that fails quietly
+
+Thinking and Image fail loudly when a region cannot serve them: the deployment
+errors. Speech does not. `MAI_SPEECH_ENDPOINT` on a resource in the wrong region
+simply never transcribes, and the demo shows FALLBACK with no obvious cause.
+
+Verified against [Speech service regions](https://learn.microsoft.com/azure/ai-services/speech-service/regions?tabs=llmspeech)
+on 2026-09-10:
+
+| Capability | Regions |
+|---|---|
+| MAI-Transcribe (LLM speech) | `centralindia`, `eastus`, `northeurope`, `southeastasia`, `westus`, `westus2` |
+| MAI voices (Voice-2 TTS) | `canadacentral`, `centralindia`, `eastus`, `eastus2`, `francecentral`, `southeastasia`, `swedencentral`, `westeurope`, `westus2` |
+
+**Four regions serve both**, and those are the only ones where a single account
+runs all four demos: `centralindia`, `eastus`, `southeastasia`, `westus2`.
+
+Two traps worth naming:
+
+- `westeurope` and `swedencentral` have MAI voices but **not** MAI-Transcribe.
+  Both are plausible Foundry regions, and picking one silently costs you the
+  transcription demo.
+- `southindia` and `spaincentral` are valid for an `AIServices` resource and are
+  documented as **not supported for speech processing at all**. `southindia` in
+  particular appears in the image-model region guidance, so it is an easy choice
+  to make for the wrong reason.
+
+Speech and the Foundry models do not have to share an account. Point
+`MAI_SPEECH_*` at a resource in one of the four, and `MAI_FOUNDRY_*` /
+`MAI_IMAGE_*` wherever the models you want are available.
+
 ## Quota
 
 `thinkingCapacity` draws from your subscription's **Tokens-per-Minute (thousands)**

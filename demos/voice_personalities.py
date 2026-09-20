@@ -25,6 +25,14 @@ SAMPLE_EN = (
 SAMPLE_ES = "Encontré el problema con tu pedido. El reemplazo ya fue enviado y va a llegar mañana."
 
 
+def _select_sample() -> None:
+    english = st.session_state["v_lang"] == "English"
+    st.session_state["v_text"] = SAMPLE_EN if english else SAMPLE_ES
+    st.session_state["v_voice"] = (
+        "en-US-Ethan:MAI-Voice-2" if english else "es-ES-Marta:MAI-Voice-2"
+    )
+
+
 def _play(client: MAIClient, text: str, voice: str, style: str | None, degree: float, key: str):
     with st.spinner(f"Synthesizing ({style or 'neutral'})…"):
         res = client.synthesize(text, voice=voice, style=style, styledegree=degree)
@@ -55,16 +63,19 @@ def render(client: MAIClient) -> None:
         f"REST `cognitiveservices/v1`  ·  `mstts:express-as` + `styledegree`"
     )
 
-    lang = st.radio(
-        "Sample", ["English", "Español (cierre multilingüe)"], horizontal=True, key="v_lang"
+    st.radio(
+        "Sample",
+        ["English", "Español (cierre multilingüe)"],
+        horizontal=True,
+        key="v_lang",
+        on_change=_select_sample,
+        help="Changing the sample resets the text and voice; both remain editable.",
     )
-    default_text = SAMPLE_EN if lang == "English" else SAMPLE_ES
-    default_voice = "en-US-Ethan:MAI-Voice-2" if lang == "English" else "es-ES-Marta:MAI-Voice-2"
+    if "v_text" not in st.session_state or "v_voice" not in st.session_state:
+        _select_sample()
 
-    voice = st.selectbox(
-        "Voice", DEMO_VOICES, index=DEMO_VOICES.index(default_voice), key="v_voice"
-    )
-    text = st.text_area("Text", value=default_text, height=90, key="v_text")
+    voice = st.selectbox("Voice", DEMO_VOICES, key="v_voice")
+    text = st.text_area("Text", height=90, key="v_text")
     degree = st.slider("styledegree", 0.5, 2.0, 1.3, 0.1, key="v_degree")
 
     supported = sorted(VOICES.get(voice, {}).get("styles", set()))

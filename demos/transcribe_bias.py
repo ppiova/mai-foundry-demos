@@ -2,7 +2,8 @@
 
 Same audio, transcribed twice: plain vs. with a domain `phraseList`. The hard
 proper nouns (Fabrikam XQ-17, KEDA, Dapr, Rehaan, …) are recovered on the right.
-Optional `verbatim` toggle preserves fillers/disfluencies.
+The `verbatim` toggle illustrates fillers/disfluencies only in fallback;
+mai-transcribe-1.5 is always verbatim live.
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ import re
 
 import streamlit as st
 
-from mai import MAIClient, audio_extension_for_mime
+from mai import MAIClient
 from mai.fallback import ENTITIES, SAMPLE_TRANSCRIPT_SCRIPT
 
 from . import _notices as notices
+from ._audio import AudioInput, sync_upload
 
 
 def _highlight(text: str, phrases: list[str]) -> str:
@@ -38,7 +40,7 @@ def render(client: MAIClient) -> None:
 
     live = client.cfg.transcribe_ready
     st.info(
-        f"Mode: **{'🟢 LIVE' if live else '🟡 FALLBACK (simulated)'}**  ·  "
+        f"Service: **{'configured for LIVE' if live else 'FALLBACK (simulated)'}**  ·  "
         f"model `{client.cfg.transcribe_model}`  ·  `phraseList` + `transcribeStyle`"
     )
 
@@ -56,75 +58,87 @@ def render(client: MAIClient) -> None:
     # a live call: say so rather than let it imply a change that will not happen.
     c3.caption("mai-transcribe-1.5 is always verbatim; this has no effect live.")
 
-    # --- get audio (needed for a live call; optional for fallback) ---
-    if c1.button("🔊 Generate sample audio (TTS)", key="tr_gen"):
-        with st.spinner("Synthesizing sample audio…"):
-            tts = client.synthesize(SAMPLE_TRANSCRIPT_SCRIPT, voice="en-US-Ethan:MAI-Voice-2")
-        if tts.data:
-            st.session_state["tr_audio"] = tts.data
-            st.session_state["tr_audio_mime"] = tts.meta.get("mime", "audio/mp3")
-            st.session_state["tr_audio_name"] = "sample" + audio_extension_for_mime(
-                st.session_state["tr_audio_mime"]
-            )
-        else:
-            st.warning(
-                "No offline TTS audio was produced (install pyttsx3), so upload a non-empty WAV, MP3, or FLAC file to continue."
-            )
     up = c2.file_uploader(
         "…or upload audio (WAV/MP3/FLAC)", type=["wav", "mp3", "flac"], key="tr_up"
     )
+    upload_audio = sync_upload("tr", up)
+    if c1.button("🔊 Generate sample audio (TTS)", key="tr_gen"):
+        st.session_state["tr_tts_audio"] = None
+        st.session_state["tr_source"] = "tts"
+        with st.spinner("Synthesizing sample audio…"):
+            tts = client.synthesize(SAMPLE_TRANSCRIPT_SCRIPT, voice="en-US-Ethan:MAI-Voice-2")
+        st.session_state["tr_tts_audio"] = AudioInput.from_tts(tts, "sample")
+        if not tts.data:
+            st.warning(
+                "No offline TTS audio was produced (install pyttsx3), so upload a non-empty WAV, MP3, or FLAC file to continue."
+            )
     notices.audio_consent()
-    if up is not None:
-        st.session_state["tr_audio"] = up.read()
-        st.session_state["tr_audio_mime"] = up.type or "audio/wav"
-        st.session_state["tr_audio_name"] = up.name
-
-    audio = st.session_state.get("tr_audio")
-    if audio:
-        st.audio(audio, format=st.session_state.get("tr_audio_mime", "audio/mp3"))
-        if st.session_state.get("tr_audio_name") is None:
+    source = st.radio(
+        "Active audio source",
+        ["tts", "upload"],
+        format_func={"tts": "Generated sample (TTS)", "upload": "Uploaded audio"}.get,
+        horizontal=True,
+        key="tr_source",
+        help="New uploads and TTS generation select that source; reruns keep your choice.",
+    )
+    audio = upload_audio if source == "upload" else st.session_state.get("tr_tts_audio")
+    if audio and audio.data:
+        st.audio(audio.data, format=audio.mime)
+        if source == "tts":
             notices.synthetic_voice()
 
     if st.button("▶ Transcribe: baseline vs phraseList", type="primary", key="tr_run"):
-        if not audio:
+        if audio is None or not audio.data:
             st.error(
-                "Transcription needs non-empty audio. Click **Generate sample audio** or upload a file."
+                "The selected source needs non-empty audio. Click **Generate sample audio**, upload a file, or select an available source."
             )
             return
-        name = st.session_state.get("tr_audio_name", "audio.wav")
         with st.spinner("Transcribing twice…"):
             base = client.transcribe(
-                audio or b"",
-                filename=name,
-                mime=st.session_state.get("tr_audio_mime"),
+                audio.data,
+                filename=audio.filename,
+                mime=audio.mime,
                 phrases=None,
                 verbatim=verbatim,
                 locales=["en"],
             )
             biased = client.transcribe(
-                audio or b"",
-                filename=name,
-                mime=st.session_state.get("tr_audio_mime"),
+                audio.data,
+                filename=audio.filename,
+                mime=audio.mime,
                 phrases=ENTITIES,
                 verbatim=verbatim,
                 locales=["en"],
             )
-        st.markdown(
-            f"**{base.badge}**  ·  baseline {base.elapsed:.1f}s · biased {biased.elapsed:.1f}s"
-        )
-        if base.error or biased.error:
-            st.warning(f"Live call failed → simulated. Detail: {base.error or biased.error}")
-        left, right = st.columns(2)
-        left.markdown("**Baseline** (no phraseList)")
-        left.markdown(_highlight(base.data, ENTITIES), unsafe_allow_html=True)
-        right.markdown("**With phraseList** (entity biasing)")
-        right.markdown(_highlight(biased.data, ENTITIES), unsafe_allow_html=True)
+        mixed = base.is_live != biased.is_live
+        if mixed:
+            status = "🟠 MIXED — LIVE + FALLBACK"
+        else:
+            status = "🟢 LIVE" if base.is_live else "🟡 FALLBACK (simulated)"
+        st.markdown(f"**Comparison: {status}**")
+        for col, label, result in zip(
+            st.columns(2),
+            ("Baseline (no phraseList)", "With phraseList (entity biasing)"),
+            (base, biased),
+            strict=True,
+        ):
+            with col:
+                st.markdown(f"**{label}**")
+                st.markdown(f"**{result.badge}** · {result.elapsed:.1f}s")
+                if result.error:
+                    st.warning(f"Live call failed → simulated. Detail: {result.error}")
+                if not result.is_live:
+                    st.info(
+                        "Simulated transcript: a canned string from the offline fallback, "
+                        "not measured from this audio."
+                    )
+                st.markdown(_highlight(result.data, ENTITIES), unsafe_allow_html=True)
+        if mixed:
+            st.warning(
+                "Mixed provenance: one transcript is live and the other is simulated. "
+                "This comparison cannot measure the effect of phraseList."
+            )
         if base.is_live and biased.is_live:
             st.success(
-                "Green = domain entities. Note how the baseline mangles the proper nouns the phraseList recovers."
-            )
-        else:
-            st.info(
-                "Simulated comparison. Both transcripts are canned strings from the offline "
-                "fallback, chosen to illustrate the effect rather than measured from audio."
+                "Green = domain entities. Compare the two live transcripts to assess the effect of phraseList."
             )

@@ -131,6 +131,17 @@ def test_tts_without_a_resource_id_falls_back_to_the_key(entra):
     assert client._tts_auth() == {"Ocp-Apim-Subscription-Key": "k"}
 
 
+def test_keyless_tts_needs_a_region_for_the_regional_host(entra):
+    cfg = Config(
+        auth_mode="entra",
+        speech_endpoint="https://r.cognitiveservices.azure.com",
+        speech_resource_id=RESOURCE_ID,
+        speech_region="",
+    )
+    assert not cfg.speech_ready
+    assert cfg.transcribe_ready
+
+
 def test_transcription_stays_keyless_even_without_the_resource_id(entra):
     """Only cognitiveservices/v1 needs the composite; transcription takes a bare token."""
     cfg = Config(auth_mode="entra", speech_endpoint="https://r.cognitiveservices.azure.com")

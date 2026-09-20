@@ -174,7 +174,7 @@ class Config:
 
     @property
     def speech_ready(self) -> bool:
-        return self.voice_keyless or bool(self.speech_key and self.speech_region)
+        return bool(self.speech_region) and (self.voice_keyless or bool(self.speech_key))
 
     @property
     def transcribe_ready(self) -> bool:

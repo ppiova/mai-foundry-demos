@@ -68,3 +68,35 @@ def test_the_offline_hint_matches_the_authentication_mode():
         assert "az login" in hint
     else:
         assert "keys" in hint
+
+
+def test_voice_sample_switch_resets_both_widget_values():
+    from demos.voice_personalities import SAMPLE_EN, SAMPLE_ES
+
+    app = _run()
+    assert app.text_area(key="v_text").value == SAMPLE_EN
+    assert app.selectbox(key="v_voice").value == "en-US-Ethan:MAI-Voice-2"
+
+    app.text_area(key="v_text").set_value("A manually edited message.").run()
+    app.selectbox(key="v_voice").select("en-US-Harper:MAI-Voice-2").run()
+    app.radio(key="v_lang").set_value("Español (cierre multilingüe)").run()
+    assert app.exception == []
+    assert app.text_area(key="v_text").value == SAMPLE_ES
+    assert app.selectbox(key="v_voice").value == "es-ES-Marta:MAI-Voice-2"
+
+    app.radio(key="v_lang").set_value("English").run()
+    assert app.exception == []
+    assert app.text_area(key="v_text").value == SAMPLE_EN
+    assert app.selectbox(key="v_voice").value == "en-US-Ethan:MAI-Voice-2"
+
+
+def test_voice_manual_edits_survive_unrelated_reruns():
+    app = _run()
+    app.radio(key="v_lang").set_value("Español (cierre multilingüe)").run()
+    app.text_area(key="v_text").set_value("Mi mensaje personalizado.").run()
+    app.selectbox(key="v_voice").select("en-US-Harper:MAI-Voice-2").run()
+    app.slider(key="v_degree").set_value(1.5).run()
+    app.run()
+    assert app.exception == []
+    assert app.text_area(key="v_text").value == "Mi mensaje personalizado."
+    assert app.selectbox(key="v_voice").value == "en-US-Harper:MAI-Voice-2"

@@ -479,11 +479,6 @@ constraints.txt            Pinned versions for a run that matters
 | [Image preservation observation](docs/IMAGE_PRESERVATION.md) | Reproduce the measurements for one recorded image pair without treating it as a benchmark |
 | [Prompts and scripts](docs/PROMPTS.md) | Rehearse the other demos with the exact prompts and known limitations |
 
-For a related learning path, see
-[Microsoft Foundry Throttling Samples](https://github.com/ppiova/microsoft-foundry-throttling-samples):
-a separate community lab on HTTP 429, bounded retries, pacing, and evidence.
-Its synthetic timing results do not describe this app's latency or Azure capacity.
-
 ## Microsoft resources
 
 - [Microsoft Foundry documentation](https://learn.microsoft.com/azure/ai-foundry/)

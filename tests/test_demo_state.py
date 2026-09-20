@@ -11,6 +11,7 @@ from PIL import Image
 from streamlit.testing.v1 import AppTest
 
 from demos import multimodal_campaign
+from demos._audio import sync_upload
 from demos._notices import SYNTHETIC_VOICE
 from mai import MAIClient, MAIResult
 from mai.config import Config
@@ -18,6 +19,61 @@ from mai.fallback import ENTITIES
 
 APP = str(Path(__file__).resolve().parent.parent / "app.py")
 UPLOAD = ("recording.flac", b"uploaded audio", "audio/flac")
+
+
+def _upload(file_id, data, filename="recording.wav", mime="audio/wav"):
+    uploaded = Mock(file_id=file_id, type=mime)
+    uploaded.name = filename
+    uploaded.getvalue.return_value = data
+    return uploaded
+
+
+def test_unchanged_upload_reuses_cached_audio_without_reading_again(monkeypatch):
+    state = {}
+    monkeypatch.setattr(st, "session_state", state)
+    first_upload = _upload("same-file", b"audio")
+    first = sync_upload("tr", first_upload)
+    state["tr_source"] = "tts"
+    rerun_upload = _upload("same-file", b"audio")
+
+    assert sync_upload("tr", first_upload) is first
+    assert sync_upload("tr", rerun_upload) is first
+    assert state["tr_source"] == "tts"
+    first_upload.getvalue.assert_called_once_with()
+    rerun_upload.getvalue.assert_not_called()
+
+
+def test_replaced_upload_refreshes_the_cache_once(monkeypatch):
+    state = {}
+    monkeypatch.setattr(st, "session_state", state)
+    old = _upload("old-file", b"old")
+    first = sync_upload("mm", old)
+    state["mm_source"] = "tts"
+    new = _upload("new-file", b"new", "new.mp3", "audio/mpeg")
+    second = sync_upload("mm", new)
+
+    assert second is not first
+    assert second.data == b"new"
+    assert second.filename == "new.mp3"
+    assert second.mime == "audio/mpeg"
+    assert state["mm_source"] == "upload"
+    assert sync_upload("mm", new) is second
+    old.getvalue.assert_called_once_with()
+    new.getvalue.assert_called_once_with()
+
+
+def test_removed_upload_clears_cached_bytes(monkeypatch):
+    state = {}
+    monkeypatch.setattr(st, "session_state", state)
+    uploaded = _upload("file", b"audio")
+    sync_upload("mm", uploaded)
+
+    assert sync_upload("mm", None, removed_source="text") is None
+    assert state["mm_upload_audio"] is None
+    assert state["mm_upload_id"] is None
+    assert state["mm_source"] == "text"
+    assert sync_upload("mm", None, removed_source="text") is None
+    uploaded.getvalue.assert_called_once_with()
 
 
 @pytest.fixture

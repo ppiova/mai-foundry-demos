@@ -54,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changing the Voice demo language updates its default text and voice.
 - Uploaded and generated audio have explicit, separate state; removing an upload
   no longer silently reuses it, and generating TTS cannot be overwritten by an
-  old selected upload.
+  old selected upload. Unchanged uploads reuse cached audio instead of reading
+  their bytes again on every rerun.
 - Transcription comparisons label each result's source and identify mixed
   LIVE/FALLBACK output without claiming both transcripts are canned.
 - Incomplete Thinking streams without a completion marker raise instead of
@@ -84,9 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Sample presentation now follows the companion Foundry throttling repository:
-  metadata, workflow badges, author attribution, an evidence-first overview,
-  guided document navigation, and explicit independent-community ownership.
+- Sample presentation includes metadata, workflow badges, author attribution,
+  an evidence-first overview, guided document navigation, and explicit
+  independent-community ownership.
 - Contribution, conduct, and security policies describe the current maintainer
   and reporting routes instead of hypothetical Microsoft ownership.
 - Cost guidance distinguishes consumption billing from reserved capacity and

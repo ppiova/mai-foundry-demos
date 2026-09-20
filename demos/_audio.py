@@ -29,19 +29,19 @@ def sync_upload(prefix: str, uploaded, *, removed_source: str = "upload") -> Aud
     Clearing the uploader clears its stored bytes. Transcribe stays on an empty
     upload until the user chooses TTS; Campaign returns to the current typed brief.
     """
-    audio = (
-        AudioInput(uploaded.getvalue(), uploaded.name, uploaded.type or "audio/wav")
-        if uploaded is not None
-        else None
-    )
     key = f"{prefix}_upload_audio"
     upload_id = uploaded.file_id if uploaded is not None else None
     id_key = f"{prefix}_upload_id"
     if upload_id != st.session_state.get(id_key):
+        audio = (
+            AudioInput(uploaded.getvalue(), uploaded.name, uploaded.type or "audio/wav")
+            if uploaded is not None
+            else None
+        )
         st.session_state[key] = audio
         st.session_state[id_key] = upload_id
         if audio is not None:
             st.session_state[f"{prefix}_source"] = "upload"
         elif st.session_state.get(f"{prefix}_source") == "upload":
             st.session_state[f"{prefix}_source"] = removed_source
-    return audio
+    return st.session_state.get(key)

@@ -20,8 +20,43 @@ recorded separately: the strict smoke script passed for all four service areas o
 changed the documented contract below.
 
 Section 0 (authentication) was added on 2026-09-10 when the sample moved to keyless
-Microsoft Entra ID. It is documentation-derived and carries its own verification note;
-the sections below it are unchanged and keep their earlier verification status.
+Microsoft Entra ID. The 2026-09-11 observations recorded in
+[PR #14](https://github.com/ppiova/mai-foundry-demos/pull/14) subsequently verified
+Image and Speech keyless paths and resolved the Transcribe-1.5 style questions.
+Thinking keyless remains unverified.
+
+## Verification at a glance
+
+These are historical observations, not a guarantee that a preview API or a region
+still behaves the same way today. The current branch includes changes after the
+published `v1.1.1` release; that release predates the keyless implementation.
+
+| Capability / path | Recorded live evidence | What remains outside that evidence |
+|---|---|---|
+| Thinking, original pre-keyless path | 2026-08-27: chat and streamed tool calls passed the strict smoke | Not proof of the current keyless path, or that every generated migration plan satisfies the constraints |
+| Thinking, Entra | Not verified in the 2026-09-11 run: subscription quota prevented deployment | End-to-end Entra inference needs a new authorized run |
+| Image, Entra | 2026-09-11: generation and edit returned LIVE output | The automated smoke checks generation only; image preservation is a separate exercise |
+| Voice, Entra | 2026-09-11: synthesis worked on the regional TTS host with the `aad#` composite | Not a comparison of all voices, styles or languages |
+| Transcribe-1.5, Entra | 2026-09-11: transcription; one clip matched with default vs explicit `verbatim`; flat `clean` returned HTTP 400 | Not a benchmark of entity biasing, diarization or Transcribe-2 |
+| Image preservation observation | 2026-08-28: one recorded generation/edit pair, with [reproducible measurements](IMAGE_PRESERVATION.md) | Not a multi-image benchmark or a guarantee of preservation |
+
+### What a passing check means
+
+- Offline tests prove local behavior and mocked request contracts, not service acceptance.
+- `scripts/live_smoke.py` checks chat, one streamed tool request, image generation,
+  voice synthesis and transcription. A configured service that cannot be exercised
+  fails, including Transcribe when Voice produces no live audio. `--allow-partial`
+  permits missing configuration, not untested configured services.
+- The smoke does not run a full migration plan, edit an image, compare voice styles
+  or measure entity accuracy. Use the relevant demo to inspect those behaviors and
+  record the inputs, outputs and limitations.
+- A successful image response must identify the configured generation deployment.
+  A replacement deployment or missing provenance cannot count as a pass.
+
+When adding evidence, record the commit or release, date, model/deployment version,
+region, authentication path actually used, command or scenario, and result.
+Include failures and untested cases. Do not publish tokens, resource keys, private
+audio or identifiable user data with the record.
 
 ---
 
@@ -171,6 +206,8 @@ never inspect, render, or log the envelope.
   `MAIStreamError` instead.
 - `usage`, `model`, `system_fingerprint` and the request id arrive at the top level of
   chunks and are surfaced for observability.
+- A stream that ends without a finish reason or `[DONE]` raises
+  `MAIStreamError` rather than returning partial content as a completed message.
 
 List a project's real deployments with
 `GET {project_endpoint}/deployments?api-version=2025-05-01`.
@@ -239,7 +276,7 @@ Drift was first noticed on 2026-09-10 re-reading the Learn source against this f
 recorded then as open questions rather than corrected on documentation alone, per this
 repo's rule that a claim is only "verified" when a live run says so. Two live tests
 against a real `mai-transcribe-1.5` deployment (`mai-foundry-demos-ppiova`, keyless)
-settle all three:
+resolve the style questions; diarization was not exercised:
 
 | Item | Was documented as | Learn now says | Live result |
 | --- | --- | --- | --- |

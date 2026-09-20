@@ -1,7 +1,23 @@
 # MAI Foundry Demos
 
-A compact Streamlit app that showcases the Microsoft MAI multimodal stack through short,
-focused demos designed for a 30 to 45 minute presentation.
+A compact Streamlit app and teaching kit for exploring the Microsoft MAI multimodal
+stack. Use it for a 30–45 minute developer presentation, or follow the
+**[45-minute Thinking workshop](docs/THINKING_WORKSHOP.md)** without an Azure account.
+
+**For:** Python developers, cloud architects, and technical presenters who know basic
+Python and JSON. No prior agent framework experience is required.
+
+**Learn to:** trace a tool-calling loop, separate model proposals from deterministic
+validation, distinguish offline rehearsal from live evidence, and reproduce a demo
+with explicit authentication, cost, and failure boundaries. This is not an automated
+migration tool or a production reference architecture.
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/ppiova/mai-foundry-demos)
+
+**En español:** empieza por la [ruta offline](#run-it-offline-first) y sigue el
+[taller de Thinking](docs/THINKING_WORKSHOP.md). No necesitas Azure: validarás un
+plan sobre datos ficticios, sin ejecutar migraciones. **FALLBACK no demuestra
+razonamiento del modelo.** Puedes enviar preguntas o feedback en español.
 
 Each demo illustrates one capability and can run in one of two modes:
 
@@ -10,13 +26,21 @@ Each demo illustrates one capability and can run in one of two modes:
   any Azure resources, and so a live hiccup on stage degrades gracefully
 
 Fallback output is always labelled as such. It is never presented as real model output.
+It teaches the application contract, not model quality or live authentication.
 
-![MAI Examples demo interface](assets/images/demo-ui-screenshot.png)
+[![MAI Examples demo interface](assets/images/demo-ui-screenshot.png)](assets/images/demo-ui-screenshot.png)
+
+Expected starting point: a service-status sidebar and a **Thinking · Decision Agent**
+tab. The [existing UI capture](assets/images/demo-ui-screenshot.png) is an orientation
+aid, not evidence that your own run is live.
 
 The field report that came out of this work, including what broke and what it took to
 make the demos repeatable:
 **[Four MAI Capabilities, One Live App: Field Notes from Microsoft Foundry](https://www.linkedin.com/pulse/four-mai-capabilities-one-live-app-field-notes-from-foundry-piovano-fomse)**,
 describing tag [`v1.1.1`](https://github.com/ppiova/mai-foundry-demos/releases/tag/v1.1.1).
+That published release predates the keyless changes documented in this checkout.
+Use the checked-out revision and [verification record](docs/API_VERIFIED.md) to
+identify what applies; the older release is not evidence of current keyless behavior.
 
 ## Features
 
@@ -36,15 +60,17 @@ image generation.
 
 Beyond the demos themselves:
 
-- **Keyless by default.** Microsoft Entra ID and Azure RBAC, with no secret to store.
-  Resource keys remain available as an explicit opt-in.
+- **Entra preferred by default.** Microsoft Entra ID and Azure RBAC need no secret.
+  A configured resource key can take over if token acquisition fails; leave keys
+  empty when verifying keyless behavior.
 - **Per-service configuration.** Each demo checks its own service, so you can run
   Thinking and Image live while Transcribe stays in fallback.
 - **A documented API surface.** [`docs/API_VERIFIED.md`](docs/API_VERIFIED.md) records
   every call, its source in Microsoft Learn, and whether it was verified live.
 - **Infrastructure as code.** [`infra/main.bicep`](infra/main.bicep) deploys the Foundry
   resource, the model deployments, and the role assignments in one command.
-- **Offline test suite.** 121 tests, no credentials, no network.
+- **Offline test suite.** Domain, API-contract, authentication, and UI regression
+  checks, with no credentials or network.
 
 ## Getting Started
 
@@ -52,59 +78,123 @@ Beyond the demos themselves:
 
 - Python 3.11 or later
 - An Azure subscription, for the LIVE path only. Everything runs in FALLBACK without one.
-- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), for keyless
-  sign-in and for deploying the infrastructure
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), only for the
+  optional LIVE path (keyless sign-in and infrastructure deployment)
 
 ### Run it offline first
 
-No Azure resources are needed for this, and it is the recommended way to rehearse.
+No Azure resources or sign-in are needed. Install dependencies before disconnecting:
+**offline-first refers to running the demo, not downloading Python packages**.
+Open Codespaces above, or get the code locally with Git (either shell):
 
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows PowerShell: .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python assets/build_assets.py      # optional: builds the base product image
-streamlit run app.py
+```text
+git clone https://github.com/ppiova/mai-foundry-demos.git
+cd mai-foundry-demos
 ```
 
-For a run that matters, pin the exact verified versions:
+Run from the repository root in either shell. The constrained install pins direct
+dependencies for repeatability; it is not a lock of every transitive dependency.
+
+**Bash (Linux/macOS, or a Codespaces terminal):**
 
 ```bash
-pip install -r requirements.txt -c constraints.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt -c constraints.txt
+export MAI_EXECUTION_MODE=demo
+export MAI_AUTH_MODE=key
+for name in MAI_FOUNDRY_ENDPOINT MAI_IMAGE_ENDPOINT MAI_SPEECH_ENDPOINT \
+            MAI_FOUNDRY_API_KEY MAI_IMAGE_API_KEY MAI_SPEECH_KEY; do
+  export "$name= "
+done
+python -m streamlit run app.py
 ```
 
-### Deploy the Azure resources
+**PowerShell (Windows):**
 
-```bash
-az group create --name rg-mai-examples --location eastus
-az ad signed-in-user show --query id -o tsv     # your principalId, for main.bicepparam
-az deployment group create \
-  --resource-group rg-mai-examples \
-  --template-file infra/main.bicep \
-  --parameters infra/main.bicepparam
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt -c constraints.txt
+$env:MAI_EXECUTION_MODE = "demo"
+$env:MAI_AUTH_MODE = "key"
+foreach ($name in @(
+    "MAI_FOUNDRY_ENDPOINT", "MAI_IMAGE_ENDPOINT", "MAI_SPEECH_ENDPOINT",
+    "MAI_FOUNDRY_API_KEY", "MAI_IMAGE_API_KEY", "MAI_SPEECH_KEY"
+)) {
+    Set-Item -Path "Env:$name" -Value " "
+}
+python -m streamlit run app.py
 ```
 
-The template deploys `MAI-Thinking-1`, `MAI-Image-2.5`, and `MAI-Image-2.5-Flash`, and
-assigns the two roles the app needs. See [`infra/README.md`](infra/README.md) for
-quota, region constraints, and teardown. Confirm current model and region availability
-in your own subscription first.
+Use another installed Python 3.11+ version if needed. If activation is blocked by
+your organization's PowerShell policy, do not change that policy: run
+`.\.venv\Scripts\python.exe` instead of `python` for installation and startup.
+
+The single-space overrides are intentional: configuration strips them to empty,
+while `python-dotenv` will not reload an existing `.env` value over them. This also
+works in PowerShell versions where assigning an empty string removes a variable.
+`demo` alone does **not** force offline mode: it still calls configured services.
+These overrides affect only this terminal and its child processes.
+
+Open `http://localhost:8501` (the forwarded **8501 / Streamlit** port in Codespaces).
+All services should show **FALLBACK**. In **Thinking · Decision Agent**, click
+**▶ Run decision agent**. Expect a labelled offline plan, **Deterministic
+validation**, **20.5%** verified savings, **6** apps moved, **3** decommissioned,
+and **0** regions over the ceiling for the bundled fictional estate.
+
+Use the [workshop](docs/THINKING_WORKSHOP.md) for exercises and facilitator notes,
+and [design decisions](docs/DESIGN_DECISIONS.md) to understand the tradeoffs.
+Stop Streamlit with **Ctrl+C**. No cloud cleanup is needed for this path.
+
+### Deploy the Azure resources (optional)
+
+Only after the offline run, review [`infra/README.md`](infra/README.md) for
+deployment steps, permissions, cost controls, quota, region constraints, and
+teardown. Nothing in the workshop requires deploying infrastructure.
+
+The template can deploy `MAI-Thinking-1`, `MAI-Image-2.5`, and
+`MAI-Image-2.5-Flash`. Confirm availability and quota in your own subscription
+first; the recorded Thinking quota limitation is not solved by changing regions.
 
 ### Go LIVE
 
+Stop the offline app and use a **new terminal** so the offline overrides above
+cannot hide your LIVE settings. Copy the template only if `.env` does not already
+exist; never overwrite a working configuration or commit secrets.
+
+**Bash:**
+
 ```bash
-cp .env.example .env               # then fill in the endpoints from the deployment
+source .venv/bin/activate
+test -f .env || cp .env.example .env
+# Edit .env using the table below before continuing.
+export MAI_AUTH_MODE=entra
+export MAI_EXECUTION_MODE=strict
 az login
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
-Keyless needs endpoints only, never a secret:
+**PowerShell:**
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Edit .env using the table below before continuing.
+$env:MAI_AUTH_MODE = "entra"
+$env:MAI_EXECUTION_MODE = "strict"
+az login
+python -m streamlit run app.py
+```
+
+Keyless needs endpoints and resource/deployment configuration, never a secret:
 
 | Demo | Env |
 |---|---|
 | Thinking-1 | `MAI_FOUNDRY_ENDPOINT`, `MAI_THINKING_DEPLOYMENT` |
 | Image-2.5 / Flash | `MAI_IMAGE_ENDPOINT`, deployment names |
 | Transcribe-1.5 | `MAI_SPEECH_ENDPOINT` |
-| Voice-2 (TTS) | `MAI_SPEECH_ENDPOINT`, `MAI_SPEECH_RESOURCE_ID` |
+| Voice-2 (TTS) | `MAI_SPEECH_ENDPOINT`, `MAI_SPEECH_RESOURCE_ID`, `MAI_SPEECH_REGION` |
 
 Chat, image, and speech are configured independently, which is what lets Image point at
 a different resource when regional availability requires it. All of them can also point
@@ -112,23 +202,55 @@ at the same account.
 
 To use resource keys instead, set `MAI_AUTH_MODE=key` and fill in `MAI_*_API_KEY` and
 `MAI_SPEECH_KEY`. That path needs an account deployed with `disableLocalAuth = false`.
+Keys can also be used as a safety net in `entra` mode if token acquisition fails.
+For a keyless-only check, leave all keys blank in `.env` **and** the process
+environment. `strict` does not disable this authentication safety net.
+
+**Read the result, not just the configuration indicator.** A service configured for
+LIVE has not yet proved it can answer. Thinking must finish with `source="live"`
+and a passing deterministic validation. The
+[verification record](docs/API_VERIFIED.md) distinguishes documented contracts,
+offline tests, and dated live checks; the 2026-09-11 authentication checks did
+**not** establish Thinking keyless live success because quota blocked that check.
 
 ### Verify
+
+In the new LIVE terminal, after reviewing the services you intend to call:
 
 ```bash
 MAI_EXECUTION_MODE=strict python scripts/live_smoke.py
 ```
 
-The script calls all four services and fails loudly rather than degrading, which is
-exactly what you want before walking on stage. `MAI_EXECUTION_MODE=demo`, the default,
-degrades a failed live call to a labelled fallback instead.
+```powershell
+$env:MAI_EXECUTION_MODE = "strict"
+python scripts\live_smoke.py
+```
+
+By default the script requires all four services. For an intentionally limited
+Thinking-only setup, append `--allow-partial`; it still calls **every configured
+service**, so keep Image/Speech unconfigured if you do not intend to use them.
+If Transcribe is configured but Voice cannot produce LIVE audio for its input,
+the check **fails**, including in partial mode. Partial mode never turns an
+unexercised configured service into a pass.
+
+Calls may incur usage charges. The smoke checks cover chat/tool-call transport,
+image **generation**, basic voice synthesis, and transcription of that generated
+audio. They do **not** verify image editing/preservation, voice styles, phrase-bias
+quality, or the complete decision-agent plan. See the
+[verification matrix](docs/API_VERIFIED.md) for the distinct evidence boundaries.
+
+Use strict mode for preflight, authentication checks, measurements, and any claim
+about model behavior. `MAI_EXECUTION_MODE=demo` permits labelled fallback for
+rehearsal or presentation continuity. The agent also replaces a rejected or
+unstructured model plan with its offline plan, even in strict mode: check the
+**final source, warnings, and validation**, not just whether an exception occurred.
 
 ## Guidance
 
 ### How the models are called
 
-Two service surfaces, both over plain HTTPS with `requests`, matching the Microsoft REST
-documentation one-to-one with no SDK coupling:
+Two service surfaces, both over HTTPS with `requests`, keeping the REST payloads
+visible for teaching rather than hiding them behind an inference SDK:
 
 - **Thinking-1** to `POST {endpoint}/mai/v1/chat/completions`, with SSE streaming,
   `tools` function calling, `max_completion_tokens`, and `reasoning_display` for
@@ -141,9 +263,14 @@ documentation one-to-one with no SDK coupling:
 - **Voice-2** to the Speech REST TTS `cognitiveservices/v1` path with SSML
   `mstts:express-as` styles.
 
+`azure-identity` is still used for Entra tokens: REST inference does not mean
+"no SDK anywhere." An SDK could reduce transport/streaming boilerplate, but would
+need to preserve these endpoint-specific fields and error semantics. See
+[design decisions](docs/DESIGN_DECISIONS.md) for why the sample keeps them explicit.
+
 ### Authentication
 
-Keyless is the default. The two service families use different token audiences, which is
+Entra is the default preference. The two service families use different token audiences, which is
 the detail that most often costs an afternoon:
 
 | Service | Scope | Role |
@@ -190,19 +317,42 @@ flowchart LR
 ```
 
 Two audiences, one account, and only the text to speech leg wraps the token with
-the resource ID. Every dotted edge is the per-call degrade: a failure on any one
-service leaves the other three live.
+the resource ID. Every dotted edge represents permitted degradation in **demo** mode; strict
+transport/API failures raise instead. Service configuration remains independent,
+although a composed demo can still depend on another service's output.
 
 If a demo shows FALLBACK when you expected LIVE, see the checklist in
 [SUPPORT.md](SUPPORT.md). Role assignments take up to five minutes to propagate.
 
 ### Costs
 
-The demos are deliberately small: short prompts, one image per run, a few seconds of
-audio. The recurring cost is the deployed capacity rather than the calls, so tear the
-resource group down when you are done. Current prices are on the
-[Azure pricing page](https://azure.microsoft.com/pricing/details/ai-foundry/); this
-repository does not estimate them, because they change.
+The offline path makes no Azure inference calls. The LIVE path incurs service
+usage charges; do not treat a short demo or a successful deployment as a budget
+guarantee.
+
+The Bicep model deployments use **`GlobalStandard`**, not Provisioned throughput.
+[Microsoft's deployment-type guide](https://learn.microsoft.com/azure/foundry/foundry-models/concepts/deployment-types)
+distinguishes consumption-based Standard deployments from **reserved PTU capacity**
+in Provisioned deployments. Allocating **TPM quota is a throughput limit, not a
+fixed recurring capacity bill**.
+
+Check each service's current meter before a run; not every service bills tokens:
+
+| Capability | Official pricing / meter reference |
+|---|---|
+| Thinking | [Microsoft Foundry pricing](https://azure.microsoft.com/pricing/details/microsoft-foundry/) — check the selected model's input/output usage meters |
+| Image / Flash | [Microsoft Foundry pricing](https://azure.microsoft.com/pricing/details/microsoft-foundry/) — check the selected image model and operation, rather than assuming chat-token pricing |
+| Transcribe | [Speech pricing](https://azure.microsoft.com/pricing/details/speech/) — audio-duration billing; verify the applicable LLM Speech offer |
+| Voice | [Speech pricing](https://azure.microsoft.com/pricing/details/speech/) — speech-synthesis character billing; verify the selected MAI voice offer |
+
+For a workshop, prefer offline, configure only the service you need, agree a small
+number of LIVE attempts, and monitor actual consumption. Thinking can make several
+requests per run; the UI agent has **no configured completion-token cap**. Its
+round/read-timeout limits are not spending limits. Codespaces, if used, has its own
+billing separate from Azure inference. See the
+[LIVE workshop checklist](docs/THINKING_WORKSHOP.md#optional-live-branch) and
+[infrastructure cleanup guidance](infra/README.md#tear-down). This sample quotes no
+prices and does not estimate your bill.
 
 ### Notes on the MAI lineup
 
@@ -224,11 +374,13 @@ All of these are recorded, with sources, in [`docs/API_VERIFIED.md`](docs/API_VE
 
 ### Development
 
+In the virtual environment created above:
+
 ```bash
-pip install ruff pytest
-ruff check .
-ruff format --check .
-pytest
+python -m pip install ruff pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m pytest
 ```
 
 The suite is fully offline and hermetic: no credentials, no network, and no dependence
@@ -252,6 +404,8 @@ assets/data/               cloud_estate.json, region_capacity.json (Thinking dem
 docs/
   API_VERIFIED.md          Verified API surface, with sources
   PROMPTS.md               Every demo prompt, ready to copy and paste
+  THINKING_WORKSHOP.md     45-minute offline-first tutorial and facilitator notes
+  DESIGN_DECISIONS.md      REST, validation, fallback, and sample-only boundaries
   IMAGE_PRESERVATION.md    What the image edit actually preserved, measured
 scripts/
   live_smoke.py            Strict preflight against all four services

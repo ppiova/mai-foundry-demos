@@ -8,7 +8,8 @@ about the live endpoints. Run this before a demo, or from the manual
 
 Each check is deliberately cheap (short prompts, 768x768 image). By default all
 four services must be configured and pass. Use ``--allow-partial`` only to validate
-an intentionally configured subset.
+an intentionally configured subset. Configured services must still be exercised:
+Transcribe fails the check if Voice cannot produce live audio for it.
 """
 
 from __future__ import annotations
@@ -104,18 +105,18 @@ def main(client: MAIClient | None = None, allow_partial: bool = False) -> int:
 
     # ── Image: one small generation ────────────────────────────────────────────
     if cfg.image_ready:
-        res = client.generate_image("A plain red circle on a white background.", 768, 768)
-        served = res.meta.get("model")
-        asked = res.meta.get("requested_model")
-        # A different deployment answering is a configuration failure, not a pass.
-        # In strict mode the client no longer swaps; this catches the demo-mode case
-        # and any future rung that starts substituting again.
-        record(
-            "Image generation",
-            res.is_live and bool(res.data) and served == asked,
-            f"-> {res.source}, {len(res.data or b'')} bytes, {res.elapsed:.1f}s, "
-            f"deployment {served!r}" + ("" if served == asked else f" (asked for {asked!r})"),
-        )
+        try:
+            res = client.generate_image("A plain red circle on a white background.", 768, 768)
+            served = res.meta.get("model")
+            asked = res.meta.get("requested_model")
+            record(
+                "Image generation",
+                res.is_live and bool(res.data) and served == asked == cfg.image_gen_deployment,
+                f"-> {res.source}, {len(res.data or b'')} bytes, {res.elapsed:.1f}s, "
+                f"deployment {served!r}, expected {cfg.image_gen_deployment!r}",
+            )
+        except Exception as exc:
+            record("Image generation", False, str(exc)[:160])
     else:
         print("  [SKIP] Image (no MAI_IMAGE_* configured)")
 
@@ -123,28 +124,44 @@ def main(client: MAIClient | None = None, allow_partial: bool = False) -> int:
     audio = None
     audio_mime = None
     if cfg.speech_ready:
-        tts = client.synthesize("Live smoke test for MAI Voice.", voice="en-US-Ethan:MAI-Voice-2")
-        audio = tts.data
-        audio_mime = tts.meta.get("mime")
-        record(
-            "Voice-2 synthesis",
-            tts.is_live and bool(tts.data),
-            f"-> {tts.source}, {len(tts.data or b'')} bytes",
-        )
+        try:
+            tts = client.synthesize(
+                "Live smoke test for MAI Voice.", voice="en-US-Ethan:MAI-Voice-2"
+            )
+            ok = tts.is_live and bool(tts.data)
+            if ok:
+                audio = tts.data
+                audio_mime = tts.meta.get("mime")
+            record(
+                "Voice-2 synthesis",
+                ok,
+                f"-> {tts.source}, {len(tts.data or b'')} bytes",
+            )
+        except Exception as exc:
+            record("Voice-2 synthesis", False, str(exc)[:160])
     else:
         print("  [SKIP] Voice-2 (no MAI_SPEECH_KEY/REGION configured)")
 
     if cfg.transcribe_ready and audio:
-        tr = client.transcribe(
-            audio,
-            filename="smoke" + audio_extension_for_mime(audio_mime),
-            mime=audio_mime,
-            phrases=ENTITIES,
-            locales=["en"],
-        )
-        record("Transcribe-1.5", tr.is_live and bool(tr.data), f"-> {tr.source}, {tr.data[:48]!r}")
+        try:
+            tr = client.transcribe(
+                audio,
+                filename="smoke" + audio_extension_for_mime(audio_mime),
+                mime=audio_mime,
+                phrases=ENTITIES,
+                locales=["en"],
+            )
+            record(
+                "Transcribe-1.5", tr.is_live and bool(tr.data), f"-> {tr.source}, {tr.data[:48]!r}"
+            )
+        except Exception as exc:
+            record("Transcribe-1.5", False, str(exc)[:160])
     elif cfg.transcribe_ready:
-        print("  [SKIP] Transcribe-1.5 (no audio produced to transcribe)")
+        record(
+            "Transcribe-1.5",
+            False,
+            "not verified: configure Voice-2 and produce live audio, then rerun",
+        )
     else:
         print("  [SKIP] Transcribe-1.5 (no MAI_SPEECH_ENDPOINT configured)")
 

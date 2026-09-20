@@ -1,0 +1,81 @@
+name: Learning question or workshop feedback
+description: Ask about a demo, report a confusing learning step, or suggest a clearer explanation.
+title: "[Learning] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions and feedback are welcome in English or Spanish.
+        You do not need an Azure account, a LIVE run, or a proposed fix.
+        For broken behavior use the bug report; for vulnerabilities follow
+        [SECURITY.md](https://github.com/ppiova/mai-foundry-demos/blob/main/SECURITY.md) privately.
+
+        Share only fictional/sample inputs and sanitized observations.
+        Never paste .env, keys, tokens, headers, encrypted reasoning state,
+        subscription/resource/tenant IDs, private endpoints, or participant information.
+        Review screenshots and error text before attaching them.
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Learning path
+      options:
+        - Offline setup - Bash
+        - Offline setup - PowerShell
+        - Codespaces
+        - Thinking workshop
+        - Optional LIVE comparison
+        - Another demo or API explanation
+        - Contribution guidance
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: step
+    attributes:
+      label: Page and step
+      description: Link the documentation section or name the tab/button you used.
+      placeholder: "THINKING_WORKSHOP.md, exercise 3: combine two moves"
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Revision and environment (optional)
+      description: Commit/tag, OS, shell, and Python version if known. Skip this for a reading question.
+      placeholder: "Commit abc1234; Windows 11; PowerShell 7; Python 3.11"
+  - type: dropdown
+    id: provenance
+    attributes:
+      label: Final result observed (optional)
+      description: Report the result badge, not only the initial configured-for-LIVE indicator.
+      options:
+        - Not run - documentation question
+        - FALLBACK - intentional offline run
+        - FALLBACK - expected LIVE
+        - LIVE
+        - Error before a final result
+        - Unsure
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to learn or observe
+      description: Your question, expected observation, or the concept that needs explanation.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What you observed (optional)
+      description: Minimal steps and sanitized results if you ran the demo. Mention demo/strict and Entra/key if relevant, without credentials or raw logs.
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested clarification (optional)
+      description: What explanation, example, or expected result would help? No code fix or participant data is needed.
+  - type: checkboxes
+    id: safe-sharing
+    attributes:
+      label: Safe sharing
+      options:
+        - label: I reviewed this report and any attachments for secrets, private resource or identity information, and participant data.
+          required: true

@@ -12,6 +12,16 @@ calls them through this same account's Speech endpoints. See
 
 ## Deploy
 
+**Optional LIVE path only.** The [Thinking workshop](../docs/THINKING_WORKSHOP.md)
+needs none of these resources. These commands provision infrastructure; the
+workshop's migration-plan validator does not provision, move, or delete anything.
+Review availability, permissions, quota, and [costs](../README.md#costs) first.
+Run these examples from the `infra` directory. The shell must be signed in to the
+intended subscription, and the caller needs permission to create the resources
+and role assignments.
+
+**Bash:**
+
 ```bash
 # 1. Create (or pick) a resource group after checking current model availability.
 az group create --name rg-mai-examples --location eastus
@@ -24,6 +34,18 @@ az group create --name rg-mai-examples --location eastus
 az deployment group create \
   --resource-group rg-mai-examples \
   --template-file main.bicep \
+  --parameters main.bicepparam
+```
+
+**PowerShell:**
+
+```powershell
+az group create --name rg-mai-examples --location eastus
+# Edit main.bicepparam and set principalId before deploying.
+# az ad signed-in-user show --query id -o tsv
+az deployment group create `
+  --resource-group rg-mai-examples `
+  --template-file main.bicep `
   --parameters main.bicepparam
 ```
 
@@ -40,8 +62,12 @@ comes from two role assignments on the account, scoped to `principalId`:
 | `Cognitive Services User` | MAI-Thinking-1 and the MAI image APIs |
 | `Cognitive Services Speech User` | MAI-Transcribe-1.5 and MAI-Voice-2 |
 
-`customSubDomainName` is set because the Speech APIs reject Entra tokens on
-regional endpoints. That property cannot be changed after creation.
+`customSubDomainName` is set because it is a prerequisite for Speech Entra
+eligibility. Transcription uses that custom host, but TTS uses
+`https://<region>.tts.speech.microsoft.com/cognitiveservices/v1` in **both** auth
+modes. Keyless TTS wraps its token as `aad#<resourceId>#<token>`. The custom
+subdomain cannot be changed after creation. See the dated verification record in
+[`docs/API_VERIFIED.md`](../docs/API_VERIFIED.md).
 
 Role assignments can take up to five minutes to propagate. If the app reports
 FALLBACK right after deployment, wait and retry before assuming a misconfiguration.
@@ -71,7 +97,10 @@ on 2026-09-10:
 | MAI voices (Voice-2 TTS) | `canadacentral`, `centralindia`, `eastus`, `eastus2`, `francecentral`, `southeastasia`, `swedencentral`, `westeurope`, `westus2` |
 
 **Four regions serve both**, and those are the only ones where a single account
-runs all four demos: `centralindia`, `eastus`, `southeastasia`, `westus2`.
+could run all four demos in that dated Speech snapshot:
+`centralindia`, `eastus`, `southeastasia`, `westus2`. This is necessary, not
+sufficient: separately check Thinking/Image availability and quota, and recheck
+the region documentation before a LIVE run.
 
 Two traps worth naming:
 
@@ -112,29 +141,61 @@ with `deployThinkingModel = false` to bring up Image and Speech independently
 while the request is pending. Nothing else in the app depends on all four
 services being live at once; each is checked and degrades on its own.
 
+`thinkingCapacity` and `imageCapacity` configure **Global Standard** throughput,
+not reserved PTUs. Quota availability is not a cost estimate. Standard usage and
+Provisioned reserved-capacity billing are different models; see
+[deployment types](https://learn.microsoft.com/azure/foundry/foundry-models/concepts/deployment-types)
+and the [per-service pricing links](../README.md#costs). Also, `GlobalStandard`
+describes global inference routing: the account's location is not a promise that
+Foundry model processing remains in that region.
+
 ## After deploying: fill in `.env`
 
-Keyless needs no secret at all, only endpoints. Copy `.env.example` to `.env` from
-the repo root and fill it from the deployment outputs:
+Keyless needs no secret, but it does need endpoints and resource metadata. Copy
+`.env.example` to `.env` from the repo root if it does not already exist, and fill
+the configuration from the deployment outputs:
 
 | Output | `.env` variable |
 |---|---|
 | `foundryEndpoint` | `MAI_FOUNDRY_ENDPOINT`, `MAI_IMAGE_ENDPOINT` |
 | `speechEndpoint` | `MAI_SPEECH_ENDPOINT` |
+| `speechRegion` | `MAI_SPEECH_REGION` (regional TTS host, **both** auth modes) |
 | `speechResourceId` | `MAI_SPEECH_RESOURCE_ID` (keyless MAI-Voice-2 only) |
 
-All of them can point at the **same** account. Then sign in locally:
+All of them can point at the **same** account where all selected services are
+supported. If a model deployment was disabled, leave that service's endpoint
+unconfigured instead of interpreting the account output as proof it exists.
+Then sign in locally:
 
 ```bash
 az login
 ```
 
-`MAI_*_API_KEY` and `MAI_SPEECH_KEY` stay empty. They are read only when
-`MAI_AUTH_MODE=key`, which needs an account deployed with
-`disableLocalAuth = false`.
+For a keyless-only run, `MAI_*_API_KEY` and `MAI_SPEECH_KEY` must stay empty in
+both `.env` and the process environment. The client can use configured keys in
+`MAI_AUTH_MODE=entra` too: they are a per-service safety net when Entra token
+acquisition fails, or when that service's keyless prerequisites are absent.
+That safety net still needs an account with `disableLocalAuth = false`.
+It does not turn a resource-key result into evidence of keyless success, and
+`MAI_EXECUTION_MODE=strict` does not disable it.
+
+Use the [Bash/PowerShell LIVE startup and preflight](../README.md#go-live)
+instructions, with a fresh terminal after an offline rehearsal. Check final
+result provenance and any authentication-fallback warning. Thinking keyless
+live success was **not** established by the 2026-09-11 check: quota blocked it;
+consult the verification matrix rather than inferring success from other services.
 
 ## Tear down
 
+No cleanup is needed for an offline workshop. For a LIVE run, stop the app to
+stop new calls, review actual usage, and remove only resources you created for
+the demo. **The following deletes the entire resource group and everything in
+it.** Confirm the selected subscription and ensure the group contains no shared
+or important resources; do not run it against an existing shared group.
+
 ```bash
-az group delete --name rg-mai-examples --yes --no-wait
+az group delete --name rg-mai-examples
 ```
+
+The same command works in PowerShell. Keep the confirmation prompt; resource
+deletion is not a substitute for reviewing already-incurred charges.

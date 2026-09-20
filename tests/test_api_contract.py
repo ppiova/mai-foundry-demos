@@ -225,6 +225,49 @@ def test_stream_captures_reasoning_and_stats(monkeypatch):
     assert message["reasoning"] == {"encrypted_content": "OPAQUE"}
 
 
+@pytest.mark.parametrize(
+    "delta",
+    [
+        {"content": "This answer is incomplete"},
+        {"tool_calls": [{"id": "a", "function": {"name": "f", "arguments": '{"x":'}}]},
+        {},
+    ],
+)
+def test_stream_rejects_eof_without_a_completion_marker(monkeypatch, delta):
+    lines = _sse({"id": "req-truncated", "choices": [{"delta": delta}]})[:-1]
+    with pytest.raises(MAIStreamError, match="IncompleteStreamError") as excinfo:
+        _run_stream(monkeypatch, lines)
+    assert excinfo.value.request_id == "req-truncated"
+
+
+def test_an_empty_stream_is_not_a_completed_message(monkeypatch):
+    with pytest.raises(MAIStreamError, match="IncompleteStreamError"):
+        _run_stream(monkeypatch, [])
+
+
+def test_stream_accepts_a_finish_reason_without_done(monkeypatch):
+    lines = _sse({"choices": [{"delta": {"content": "complete"}, "finish_reason": "stop"}]})[:-1]
+    events = _run_stream(monkeypatch, lines)
+    assert [value["content"] for kind, value in events if kind == "message"] == ["complete"]
+
+
+@pytest.mark.parametrize("mode", ["demo", "strict"])
+def test_truncated_stream_uses_the_agents_execution_policy(monkeypatch, mode):
+    from agents import run_agent
+
+    lines = _sse({"choices": [{"delta": {"content": "An unfinished proposal"}}]})[:-1]
+    monkeypatch.setattr("mai.client.requests.post", lambda *a, **kw: _FakeResponse(lines))
+    client = _client(execution_mode=mode)
+    if mode == "strict":
+        with pytest.raises(MAIStreamError, match="IncompleteStreamError"):
+            run_agent(client)
+    else:
+        run = run_agent(client)
+        assert run.source == "fallback"
+        assert "IncompleteStreamError" in run.error
+        assert run.validation.ok
+
+
 # ── execution mode ──────────────────────────────────────────────────────────────
 def _speech_client(strict: bool) -> MAIClient:
     return MAIClient(

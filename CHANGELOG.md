@@ -18,12 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deployment now issues no usable keys at all. Deploy with
   `disableLocalAuth = false` if you need the key path.
 - **`thinkingCapacity` defaults to 10 instead of 50.** 50 commonly exceeded the
-  per-subscription, per-region quota on a fresh subscription, so the first
-  deployment failed with `InsufficientQuota`. Raise it if you have the quota.
+  available quota, so the first deployment failed with `InsufficientQuota`.
+  The 2026-09-11 observation found subscription-wide quota for this model;
+  raise capacity only if you have headroom.
 - **`LICENSE` is now `LICENSE.md`.**
 
 ### Added
 
+- A 45-minute Thinking workshop with offline exercises, expected results and
+  facilitator notes, plus a guide to the sample's design decisions.
+- Learning objectives, Bash and PowerShell onboarding, a Codespaces entry point,
+  and a question template for learning and setup feedback.
+- A verification matrix distinguishing historical live evidence, offline
+  contracts, current smoke coverage and untested scenarios.
 - Keyless authentication with Microsoft Entra ID (`mai/auth.py`), resolved per
   service, with the two token audiences and the `aad#{resourceId}#{token}` form
   that the text to speech path requires.
@@ -44,6 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Changing the Voice demo language updates its default text and voice.
+- Uploaded and generated audio have explicit, separate state; removing an upload
+  no longer silently reuses it, and generating TTS cannot be overwritten by an
+  old selected upload.
+- Transcription comparisons label each result's source and identify mixed
+  LIVE/FALLBACK output without claiming both transcripts are canned.
+- Incomplete Thinking streams without a completion marker raise instead of
+  returning partial messages as complete responses.
+- The live smoke reports failures for configured but untested transcription,
+  requires the configured image deployment, and continues reporting other
+  service failures rather than aborting at the first exception.
+- Migration estimates reject duplicate application names and do not double-count
+  capacity for same-region moves.
+- Keyless TTS readiness requires a region, matching the regional host corrected
+  and live-verified in PR #14.
 - Strict mode no longer answers from a different image deployment than the one
   requested, which had let `scripts/live_smoke.py` report PASS for a generation
   deployment that does not exist.
@@ -62,11 +84,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `docs/API_VERIFIED.md` records three differences found between it and the
-  current Microsoft Learn page for MAI-Transcribe: diarization is supported,
-  `transcribeStyle` defaults to `verbatim`, and the parameter is nested under
-  `modelOptions` for Transcribe-2. Recorded as drift with the open questions
-  stated, pending a live run.
+- Cost guidance distinguishes consumption billing from reserved capacity and
+  quota, without quoting unverified prices.
+- The verification ledger incorporates the 2026-09-11 live observations from
+  PR #14. Thinking keyless remains unverified; Transcribe-1.5's verbatim behavior
+  is no longer presented as an unresolved question.
+- `docs/API_VERIFIED.md` records the Transcribe documentation drift and its
+  2026-09-11 follow-up: the tested 1.5 default matched explicit `verbatim`,
+  flat `clean` was rejected, and the nested `modelOptions` path belongs to
+  Transcribe-2. Diarization was not exercised.
 - README restructured to the section layout a published sample is expected to
   carry, with the security, responsible AI, and trademark notices.
 - CI runs on Python 3.11 and 3.13.

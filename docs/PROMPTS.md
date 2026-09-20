@@ -53,7 +53,12 @@ phraseList:
 Fabrikam XQ-17, KEDA, Dapr, AKS, Rehaan, Jessie, MAI-Thinking-1
 ```
 
-Toggle `verbatim` to preserve fillers/disfluencies.
+`mai-transcribe-1.5` already uses verbatim output: the toggle has no effect on a
+live call. Offline, it changes the canned example to illustrate fillers and
+disfluencies, not to measure model behavior. The 2026-09-11 live observations
+and the rejected `clean` value are recorded in `API_VERIFIED.md`, section 3.
+Read the source badge on each transcript independently; a mixed LIVE/FALLBACK
+comparison is not evidence of an entity-biasing improvement.
 
 ## 4 · MAI-Voice-2 — Three personalities
 

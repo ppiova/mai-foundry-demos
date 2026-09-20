@@ -195,7 +195,8 @@ class MAIClient:
 
         Raises ``MAIStreamError`` if the service reports an error mid-stream (a
         safety block can arrive *after* partial content) so truncated output is
-        never mistaken for a complete answer.
+        never mistaken for a complete answer. An EOF without either a finish
+        reason or the ``[DONE]`` sentinel is also an incomplete response.
         """
         if not self.cfg.foundry_ready:
             raise RuntimeError("Thinking service is not configured")
@@ -208,6 +209,7 @@ class MAIClient:
         assistant_fields: dict[str, Any] = {}
         stats: dict[str, Any] = {}
         event_type: str | None = None
+        saw_done = False
         with requests.post(
             _require_https(self.cfg.chat_url),
             headers={
@@ -232,6 +234,7 @@ class MAIClient:
                 if data == "[DONE]":
                     if event_type == "error":
                         raise MAIStreamError("SSEError", "Streaming request failed")
+                    saw_done = True
                     break
                 try:
                     chunk = json.loads(data)
@@ -289,6 +292,13 @@ class MAIClient:
                         slot["name"] = fn["name"]
                     if fn.get("arguments"):
                         slot["args"] += fn["arguments"]
+
+        if not saw_done and not stats.get("finish_reason"):
+            raise MAIStreamError(
+                "IncompleteStreamError",
+                "Streaming response ended without a completion marker",
+                stats.get("request_id"),
+            )
 
         message: dict[str, Any] = {"role": "assistant", "content": "".join(content_parts) or None}
         message.update(assistant_fields)

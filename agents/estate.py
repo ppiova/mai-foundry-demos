@@ -83,6 +83,8 @@ class CloudEstate:
     def calculate_migration_cost(self, app_names: list[str], target_region: str) -> dict:
         if target_region not in self.regions:
             return {"error": f"Unknown target_region '{target_region}'."}
+        if len(app_names) != len(set(app_names)):
+            return {"error": "Duplicate application names are not allowed; list each app once."}
         details, errors = [], []
         monthly_before = monthly_after = one_time = 0.0
         added_units = 0
@@ -93,6 +95,9 @@ class CloudEstate:
                 continue
             if app["tier"] == 1 or not app["can_migrate"]:
                 errors.append(f"'{name}' is Tier-{app['tier']} / non-migratable and cannot move.")
+                continue
+            if app["region"] == target_region:
+                errors.append(f"'{name}' is already in '{target_region}'; no migration is needed.")
                 continue
             before = app["monthly_cost"]
             after = self.effective_cost(name, target_region)
@@ -185,7 +190,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "calculate_migration_cost",
-            "description": "Estimate monthly savings, one-time cost, and the resulting target-region utilization for moving a set of apps to a target region. Rejects Tier-1 / non-migratable apps.",
+            "description": "Estimate monthly savings, one-time cost, and the resulting target-region utilization for moving a set of apps to a target region. Rejects duplicate names, same-region moves, and Tier-1 / non-migratable apps.",
             "parameters": {
                 "type": "object",
                 "properties": {

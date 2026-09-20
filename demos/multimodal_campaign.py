@@ -18,9 +18,10 @@ from dataclasses import dataclass
 
 import streamlit as st
 
-from mai import MAIClient, audio_extension_for_mime
+from mai import MAIClient
 
 from . import _notices as notices
+from ._audio import AudioInput, sync_upload
 
 DEFAULT_BRIEF = (
     "Create a launch campaign for a new sustainable smart backpack targeted at business travelers."
@@ -144,35 +145,62 @@ def render(client: MAIClient) -> None:
     )
 
     brief_text = st.text_area("Spoken/typed brief", value=DEFAULT_BRIEF, height=80, key="mm_brief")
-    c1, c2 = st.columns(2)
-    if c1.button("🔊 Speak this brief (TTS) & use as audio", key="mm_tts"):
-        tts = client.synthesize(brief_text, voice="en-US-Ethan:MAI-Voice-2")
-        if tts.data:
-            st.session_state["mm_audio"] = tts.data
-            st.session_state["mm_audio_mime"] = tts.meta.get("mime", "audio/mp3")
-            st.session_state["mm_audio_name"] = "brief" + audio_extension_for_mime(
-                st.session_state["mm_audio_mime"]
+    if st.session_state.get("mm_tts_text", brief_text) != brief_text:
+        st.session_state["mm_tts_audio"] = None
+        st.session_state["mm_tts_text"] = brief_text
+        if st.session_state.get("mm_source") == "tts":
+            st.session_state["mm_source"] = "text"
+            st.info(
+                "The brief changed — using the current typed text. Generate TTS again to hear it."
             )
+
+    c1, c2 = st.columns(2)
     up = c2.file_uploader("…or upload a spoken brief", type=["wav", "mp3", "flac"], key="mm_up")
+    upload_audio = sync_upload("mm", up, removed_source="text")
+    if c1.button("🔊 Speak this brief (TTS) & use as audio", key="mm_tts"):
+        st.session_state["mm_tts_audio"] = None
+        st.session_state["mm_source"] = "tts"
+        tts = client.synthesize(brief_text, voice="en-US-Ethan:MAI-Voice-2")
+        st.session_state["mm_tts_audio"] = AudioInput.from_tts(tts, "brief")
+        st.session_state["mm_tts_text"] = brief_text
+        if not tts.data:
+            st.warning(
+                "No TTS audio was produced. Generate it again, select Typed brief, or upload audio."
+            )
     notices.audio_consent()
-    if up is not None:
-        st.session_state["mm_audio"] = up.read()
-        st.session_state["mm_audio_mime"] = up.type or "audio/wav"
-        st.session_state["mm_audio_name"] = up.name
-    audio = st.session_state.get("mm_audio")
-    if audio:
-        st.audio(audio, format=st.session_state.get("mm_audio_mime", "audio/mp3"))
+    source = st.radio(
+        "Active brief source",
+        ["text", "tts", "upload"],
+        format_func={
+            "text": "Typed brief",
+            "tts": "Generated speech (TTS)",
+            "upload": "Uploaded audio",
+        }.get,
+        horizontal=True,
+        key="mm_source",
+        help="New uploads and TTS generation select that source. Removing an active upload returns to typed text.",
+    )
+    audio = {"upload": upload_audio, "tts": st.session_state.get("mm_tts_audio")}.get(source)
+    if audio and audio.data:
+        st.audio(audio.data, format=audio.mime)
+        if source == "tts":
+            notices.synthetic_voice()
 
     if st.button("▶ Run full campaign", type="primary", key="mm_run"):
+        if source != "text" and (audio is None or not audio.data):
+            st.error(
+                "The selected source needs non-empty audio. Generate TTS, upload a file, or select Typed brief."
+            )
+            return
         total = 0.0
 
         # 1) Speech → text
         st.markdown("### 1 · Speech → text")
         if audio:
             tr = client.transcribe(
-                audio,
-                filename=st.session_state.get("mm_audio_name", "brief.wav"),
-                mime=st.session_state.get("mm_audio_mime"),
+                audio.data,
+                filename=audio.filename,
+                mime=audio.mime,
                 phrases=["backpack", "sustainable"],
                 locales=["en"],
             )
@@ -182,7 +210,7 @@ def render(client: MAIClient) -> None:
             st.write(brief_used)
         else:
             brief_used = brief_text
-            st.caption("No audio provided — using typed brief.")
+            st.caption("Typed brief selected — using the current text without transcription.")
 
         # 2) Reasoning → campaign
         st.markdown("### 2 · Reasoning → campaign")

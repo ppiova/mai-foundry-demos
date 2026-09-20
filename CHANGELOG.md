@@ -84,6 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Sample presentation now follows the companion Foundry throttling repository:
+  metadata, workflow badges, author attribution, an evidence-first overview,
+  guided document navigation, and explicit independent-community ownership.
+- Contribution, conduct, and security policies describe the current maintainer
+  and reporting routes instead of hypothetical Microsoft ownership.
 - Cost guidance distinguishes consumption billing from reserved capacity and
   quota, without quoting unverified prices.
 - The verification ledger incorporates the 2026-09-11 live observations from

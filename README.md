@@ -1,8 +1,43 @@
+---
+name: MAI Foundry demos
+description: Explore multimodal MAI capabilities, validate model proposals, and distinguish offline rehearsal from live evidence.
+languages:
+- python
+- bicep
+products:
+- azure
+- ai-services
+page_type: sample
+urlFragment: mai-foundry-demos
+---
+
 # MAI Foundry Demos
+
+**Explore MAI capabilities. Validate the output. Follow the evidence.**
+
+[![CI (main)](https://github.com/ppiova/mai-foundry-demos/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ppiova/mai-foundry-demos/actions/workflows/ci.yml)
+[![CodeQL (main)](https://github.com/ppiova/mai-foundry-demos/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/ppiova/mai-foundry-demos/actions/workflows/codeql.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
+
+Built by **[Pablo Piovano](https://www.linkedin.com/in/ppiova/)** ·
+**[Microsoft MVP](https://mvp.microsoft.com/en-US/mvp/profile/33e06bb6-ccb0-ec11-983f-000d3a1017e3) ·
+[Docker Captain](https://www.docker.com/contributors/pablo-piovano/)**
 
 A compact Streamlit app and teaching kit for exploring the Microsoft MAI multimodal
 stack. Use it for a 30–45 minute developer presentation, or follow the
 **[45-minute Thinking workshop](docs/THINKING_WORKSHOP.md)** without an Azure account.
+
+**[Run offline](#run-it-offline-first) → [Try the workshop](docs/THINKING_WORKSHOP.md) →
+[Understand the design](docs/DESIGN_DECISIONS.md) → [Verify a LIVE run](#verify).**
+
+**[Results](#a-result-you-can-reproduce) · [Demos](#features) ·
+[Quick start](#run-it-offline-first) · [Azure](#go-live) · [Costs](#costs) ·
+[Deep dives](#go-deeper) · [Project policies](#project-policies)**
+
+> Independent community project. Not an official Microsoft product or a
+> Microsoft-supported sample. The offline path uses fictional data and makes
+> no Azure inference calls. LIVE execution is optional and can incur charges.
 
 **For:** Python developers, cloud architects, and technical presenters who know basic
 Python and JSON. No prior agent framework experience is required.
@@ -42,6 +77,23 @@ That published release predates the keyless changes documented in this checkout.
 Use the checked-out revision and [verification record](docs/API_VERIFIED.md) to
 identify what applies; the older release is not evidence of current keyless behavior.
 
+## A result you can reproduce
+
+Start with the Thinking demo in **FALLBACK**, using the bundled fictional estate:
+
+| Observation | Expected result | What it demonstrates |
+|---|---|---|
+| Monthly cost | $177,000 → about $140,704 | Arithmetic over sample data, not an Azure bill |
+| Savings | 20.5% | The deterministic proposal meets the encoded 20% floor |
+| Actions | 6 moves, 3 decommissions | A greedy local planner, not model-selected actions |
+| Regions above the 70% ceiling | 0 | Cumulative validation of the complete proposal |
+
+**The model proposes; code validates.** The
+[workshop](docs/THINKING_WORKSHOP.md) also combines two individually acceptable
+moves into a rejected plan. That failure is part of the lesson.
+These reproducible results do not establish model quality, an optimal migration,
+or production readiness.
+
 ## Features
 
 These are four selected MAI capabilities, not an exhaustive catalog of the MAI family.
@@ -51,7 +103,7 @@ The app is organized around four story beats and a finale:
 |---|---|---|
 | 🧠 Thinking · Decision Agent | Tool-using reasoning over a cloud estate and migration constraints | Foundry resource |
 | 🎨 Image · Surgical Edit | Controlled image editing with preservation-oriented prompts | Foundry image resource |
-| 🎙️ Transcribe · Entity biasing | Domain-aware transcription with phrase biasing and verbatim mode | Speech resource |
+| 🎙️ Transcribe · Entity biasing | Compare phrase biasing; 1.5 is already verbatim | Speech resource |
 | 🗣️ Voice · Personalities | Expressive TTS with multiple styles and languages | Speech resource |
 | 🚀 Finale · Multimodal | End-to-end flow: speech, reasoning, image, speech | Combination of the above |
 
@@ -417,7 +469,22 @@ ps-rule.yaml               PSRule config, including the documented rule exclusio
 constraints.txt            Pinned versions for a run that matters
 ```
 
-## Resources
+## Go deeper
+
+| Document | Read it when you want to |
+|---|---|
+| [Thinking workshop](docs/THINKING_WORKSHOP.md) | Teach or complete the 45-minute lab, including expected results and an unsafe-plan exercise |
+| [Design decisions](docs/DESIGN_DECISIONS.md) | Trace REST, tools, validation and fallback, and understand what would need to change for production |
+| [API sources and verification](docs/API_VERIFIED.md) | Follow service-specific claims to official documentation and distinguish dated live evidence from untested paths |
+| [Image preservation observation](docs/IMAGE_PRESERVATION.md) | Reproduce the measurements for one recorded image pair without treating it as a benchmark |
+| [Prompts and scripts](docs/PROMPTS.md) | Rehearse the other demos with the exact prompts and known limitations |
+
+For a related learning path, see
+[Microsoft Foundry Throttling Samples](https://github.com/ppiova/microsoft-foundry-throttling-samples):
+a separate community lab on HTTP 429, bounded retries, pacing, and evidence.
+Its synthetic timing results do not describe this app's latency or Azure capacity.
+
+## Microsoft resources
 
 - [Microsoft Foundry documentation](https://learn.microsoft.com/azure/ai-foundry/)
 - [MAI-Thinking-1](https://learn.microsoft.com/azure/foundry/foundry-models/how-to/use-foundry-models-mai-thinking)
@@ -446,12 +513,16 @@ associated risks and for complying with all applicable laws and safety standards
 [SECURITY.md](SECURITY.md) for the security posture and for how to report a
 vulnerability privately.
 
-## Contributing
+## Project policies
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SUPPORT.md](SUPPORT.md), and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Notable changes are recorded in
-[CHANGELOG.md](CHANGELOG.md). Licensed under the MIT License; see
-[LICENSE.md](LICENSE.md).
+| Document | Purpose |
+|---|---|
+| [Contributing](CONTRIBUTING.md) | Editorial conventions, small contributions and local validation |
+| [Code of conduct](CODE_OF_CONDUCT.md) | Community expectations and the maintainer's private reporting route |
+| [Security](SECURITY.md) | Vulnerability reporting, credential handling and sample boundaries |
+| [Support](SUPPORT.md) | Setup help, learning questions and what this project cannot support |
+| [Changelog](CHANGELOG.md) | Notable changes and release history |
+| [MIT License](LICENSE.md) | Terms for using and contributing to the code |
 
 ## Trademarks
 
@@ -461,3 +532,9 @@ Authorized use of Microsoft trademarks or logos is subject to and must follow
 Use of Microsoft trademarks or logos in modified versions of this project must not cause
 confusion or imply Microsoft sponsorship. Any use of third-party trademarks or logos is
 subject to those third parties' policies.
+
+---
+
+**Pablo Piovano · Microsoft MVP · Docker Captain** · [GitHub](https://github.com/ppiova)
+
+Released under the [MIT License](LICENSE.md).

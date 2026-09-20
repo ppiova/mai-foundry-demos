@@ -6,6 +6,24 @@ and opt into a clearly labelled LIVE run. We value small, reproducible
 improvements that make that journey clearer without turning the sample into a
 production framework.
 
+This is an independent community project, not a Microsoft-owned repository.
+
+## Editorial conventions
+
+Use **US English** for the canonical documentation, code comments, prompts, and
+UI text. The short Spanish orientation and questions in Spanish are welcome;
+keep one canonical technical explanation rather than maintaining divergent copies.
+
+Lead with the learning goal, then provide a runnable example, expected observation,
+and limits on what it proves. Link service-specific claims to Microsoft Learn
+through [the API verification record](docs/API_VERIFIED.md). Clearly distinguish
+documented contracts, local implementation choices, and dated live observations.
+
+Prefer links to the existing workshop, design guide, and verification record over
+duplicating them. Use real workflow badges and recorded evidence; neither a badge
+nor a Microsoft product name implies Microsoft ownership, endorsement, or support.
+Keep changes focused on one learning or reliability improvement.
+
 ## Small contributions that help
 
 You do not need an Azure subscription to contribute. For example:
@@ -99,10 +117,9 @@ Never run a billable LIVE check merely to make a docs-only PR look complete.
 Use the issue templates. For anything security related, follow
 [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
-## Contributor License Agreement
+## Licensing of contributions
 
-> **Note for the maintainer.** If this repository moves to a Microsoft-owned
-> organization, add the standard Microsoft CLA section here: contributions require
-> agreeing to the [Microsoft CLA](https://cla.opensource.microsoft.com), and the
-> CLA bot annotates pull requests automatically. It does not apply while the
-> repository is personally owned.
+Contributions are accepted under this repository's [MIT License](LICENSE.md).
+By submitting a pull request, you confirm that you have the right to contribute
+the material under those terms. This community repository does not currently
+require a Contributor License Agreement or use Microsoft's CLA bot.

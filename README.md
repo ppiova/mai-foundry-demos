@@ -20,6 +20,9 @@ urlFragment: mai-foundry-demos
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
 
+**Current release: [v2.0.0](CHANGELOG.md#200---2026-09-20)** ·
+**[Upgrading from v1.1.1](docs/UPGRADING.md)**
+
 Built by **[Pablo Piovano](https://www.linkedin.com/in/ppiova/)** ·
 **[Microsoft MVP](https://mvp.microsoft.com/en-US/mvp/profile/33e06bb6-ccb0-ec11-983f-000d3a1017e3) ·
 [Docker Captain](https://www.docker.com/contributors/pablo-piovano/)**
@@ -73,7 +76,7 @@ The field report that came out of this work, including what broke and what it to
 make the demos repeatable:
 **[Four MAI Capabilities, One Live App: Field Notes from Microsoft Foundry](https://www.linkedin.com/pulse/four-mai-capabilities-one-live-app-field-notes-from-foundry-piovano-fomse)**,
 describing tag [`v1.1.1`](https://github.com/ppiova/mai-foundry-demos/releases/tag/v1.1.1).
-That published release predates the keyless changes documented in this checkout.
+That published release predates the keyless changes introduced in v2.0.0.
 Use the checked-out revision and [verification record](docs/API_VERIFIED.md) to
 identify what applies; the older release is not evidence of current keyless behavior.
 
@@ -454,6 +457,7 @@ agents/                    Demo domain logic, independent of the UI
 demos/                     One module per demo (each exposes render(client))
 assets/data/               cloud_estate.json, region_capacity.json (Thinking demo)
 docs/
+  UPGRADING.md             v1.1.1 to v2.0.0 configuration changes and known limits
   API_VERIFIED.md          Verified API surface, with sources
   PROMPTS.md               Every demo prompt, ready to copy and paste
   THINKING_WORKSHOP.md     45-minute offline-first tutorial and facilitator notes
@@ -473,6 +477,7 @@ constraints.txt            Pinned versions for a run that matters
 
 | Document | Read it when you want to |
 |---|---|
+| [Upgrade guide](docs/UPGRADING.md) | Move from v1.1.1 to v2.0.0, review changed defaults, and verify without confusing fallback with live evidence |
 | [Thinking workshop](docs/THINKING_WORKSHOP.md) | Teach or complete the 45-minute lab, including expected results and an unsafe-plan exercise |
 | [Design decisions](docs/DESIGN_DECISIONS.md) | Trace REST, tools, validation and fallback, and understand what would need to change for production |
 | [API sources and verification](docs/API_VERIFIED.md) | Follow service-specific claims to official documentation and distinguish dated live evidence from untested paths |

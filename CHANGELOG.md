@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-20
+
 ### Breaking
 
 - **Authentication defaults to keyless.** `MAI_AUTH_MODE` now defaults to `entra`,
@@ -140,7 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: four MAI capability demos plus a multimodal finale, the
   LIVE and FALLBACK execution model, the Bicep template, and the offline suite.
 
-[Unreleased]: https://github.com/ppiova/mai-foundry-demos/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ppiova/mai-foundry-demos/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ppiova/mai-foundry-demos/compare/v1.1.1...v2.0.0
 [1.1.1]: https://github.com/ppiova/mai-foundry-demos/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ppiova/mai-foundry-demos/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/ppiova/mai-foundry-demos/compare/v1.0.1...v1.0.2

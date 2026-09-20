@@ -153,11 +153,13 @@ class Config:
 
     @property
     def voice_keyless(self) -> bool:
-        """Keyless TTS needs the custom-subdomain endpoint *and* the resource ID.
+        """Keyless TTS needs the resource ID for the ``aad#{id}#{token}`` composite.
 
-        An Entra token is rejected by the regional ``*.tts.speech.microsoft.com``
-        host, and the ``cognitiveservices/v1`` path wants ``aad#{id}#{token}``.
-        Without both values the only workable path is the key.
+        ``speech_endpoint`` (the custom subdomain) is kept as a second condition
+        because Microsoft Learn documents it as a prerequisite for a resource to
+        be Entra-auth-eligible at all, even though the TTS request itself is not
+        sent to that host (see ``tts_url``). Without a resource ID the composite
+        cannot be built, so the only workable path is the key.
         """
         return self.keyless_enabled and bool(self.speech_endpoint and self.speech_resource_id)
 
@@ -206,17 +208,16 @@ class Config:
 
     @property
     def tts_url(self) -> str:
-        """Text to speech endpoint.
+        """Text to speech endpoint: the regional host, for both auth modes.
 
-        A bearer token is only accepted by the host that owns it, so keyless
-        synthesis has to use the resource's custom subdomain rather than the
-        regional ``{region}.tts.speech.microsoft.com`` host. Selecting it by
-        ``voice_keyless`` and not by the auth actually used is deliberate: a
-        resource key works against every endpoint format, so if the token cannot
-        be obtained the key still succeeds on this same URL.
+        Verified live against a real AIServices account (2026-09-11): the
+        resource's own custom subdomain 404s on ``/cognitiveservices/v1`` for a
+        bearer token, with or without the ``aad#`` composite. The regional host
+        accepts both a resource key and, with the composite, an Entra token.
+        The custom subdomain is still required for the resource to be eligible
+        for Entra authentication at all; it is just not where this request goes.
+        See docs/API_VERIFIED.md section 0.
         """
-        if self.voice_keyless:
-            return f"{self.speech_endpoint}/cognitiveservices/v1"
         return f"https://{self.speech_region}.tts.speech.microsoft.com/cognitiveservices/v1"
 
 

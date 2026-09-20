@@ -50,6 +50,11 @@ def render(client: MAIClient) -> None:
     verbatim = c3.toggle(
         "verbatim", value=False, key="tr_verbatim", help="Preserve filler words and disfluencies."
     )
+    # Verified live (2026-09-11, docs/API_VERIFIED.md section 3): mai-transcribe-1.5
+    # already defaults to verbatim, and rejects "clean" outright (HTTP 400). This
+    # model has no other style to switch to, so the toggle above has no effect on
+    # a live call: say so rather than let it imply a change that will not happen.
+    c3.caption("mai-transcribe-1.5 is always verbatim; this has no effect live.")
 
     # --- get audio (needed for a live call; optional for fallback) ---
     if c1.button("🔊 Generate sample audio (TTS)", key="tr_gen"):

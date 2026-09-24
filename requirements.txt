@@ -7,7 +7,7 @@
 #
 # For a rehearsed or presented run, install the exact versions that were verified:
 #     pip install -r requirements.txt -c constraints.txt
-streamlit>=1.63.0,<2
+streamlit>=1.64.0,<2
 requests>=2.31,<3
 python-dotenv>=1.0,<2
 Pillow>=10.0,<13

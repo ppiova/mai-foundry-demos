@@ -7,16 +7,16 @@
 #
 # For a rehearsed or presented run, install the exact versions that were verified:
 #     pip install -r requirements.txt -c constraints.txt
-streamlit>=1.63.0,<2
+streamlit>=1.65.0,<2
 requests>=2.31,<3
-python-dotenv>=1.0,<2
+python-dotenv>=1.2.4,<2
 Pillow>=10.0,<13
 
 # Keyless authentication with Microsoft Entra ID (MAI_AUTH_MODE=entra, the
 # default). DefaultAzureCredential resolves the managed identity in Azure and the
 # developer's az login locally. Without this package the app falls back to
 # resource keys, so it stays installable, just not keyless.
-azure-identity>=1.19,<2
+azure-identity>=1.26.0,<2
 
 # Optional: audible offline fallback for the Voice demo (OS TTS / SAPI5 on Windows).
 # Install it yourself if you want the offline fallback to actually play audio:
